@@ -16,7 +16,7 @@ export function extractCsrfToken(cmd: string): string | undefined {
   const patterns = [
     /--csrf_token[=\s]+"([^"]+)"/i,
     /--csrf_token[=\s]+'([^']+)'/i,
-    /--csrf_token[=\s]+([\w-]+)/i
+    /--csrf_token[=\s]+([^\s"']+)/i
   ];
   for (const pattern of patterns) {
     const match = cmd.match(pattern);
@@ -38,15 +38,16 @@ export async function findAntigravityProcess(): Promise<ProcessInfo> {
   const strategy = getPlatformStrategy();
   const processes = await strategy.getProcesses();
 
-  const antigravityProcess = processes.find((p: ProcessInfo) =>
+  const matchingProcesses = processes.filter((p: ProcessInfo) =>
     p.cmd.includes(PROCESS_IDENTIFIERS.ANTIGRAVITY) || p.cmd.includes(PROCESS_IDENTIFIERS.CSRF_TOKEN)
   );
 
-  if (!antigravityProcess) {
+  if (matchingProcesses.length === 0) {
     throw new Error('Antigravity process not found. Make sure Antigravity is running.');
   }
 
-  return antigravityProcess;
+  matchingProcesses.sort((a, b) => b.pid - a.pid);
+  return matchingProcesses[0];
 }
 
 export async function findListeningPorts(pid: ProcessId): Promise<number[]> {
@@ -171,9 +172,11 @@ export function makeRequest<T>(port: number, csrfToken: string, path: string, bo
     }, response => {
       response.setEncoding('utf8');
       let responseData = '';
+      let byteCount = 0;
 
       response.on('data', chunk => {
-        if (responseData.length + chunk.length > MAX_BUFFER_SIZE) {
+        byteCount += Buffer.byteLength(chunk);
+        if (byteCount > MAX_BUFFER_SIZE) {
           cleanup();
           request?.destroy();
           return reject(new Error(`Response exceeded ${MAX_BUFFER_SIZE} bytes`));
@@ -186,12 +189,12 @@ export function makeRequest<T>(port: number, csrfToken: string, path: string, bo
         const statusCode = response.statusCode ?? 0;
 
         if (statusCode < 200 || statusCode >= 300) {
-          return reject(new Error(`HTTP request failed with status ${statusCode}`));
+          return reject(new Error(`HTTP ${statusCode} on ${path}`));
         }
         try {
           resolve(JSON.parse(responseData));
         } catch {
-          reject(new Error('Failed to parse server response as JSON'));
+          reject(new Error(`Invalid JSON response from ${path}`));
         }
       });
 
@@ -237,9 +240,9 @@ export async function fetchStats(port: number, csrfToken: string): Promise<Usage
 
   for (const model of models) {
     const { quotaInfo, label } = model;
-    const remainingFraction = quotaInfo?.remainingFraction;
 
-    const modelQuota = typeof remainingFraction === 'number' && Number.isFinite(remainingFraction) ? remainingFraction : 0;
+    const parsed = parseFloat(String(quotaInfo?.remainingFraction ?? ''));
+    const modelQuota = Number.isFinite(parsed) ? parsed : 0;
     const category = determineCategory(label);
     const group = groups[category] ??= { quota: 1, resetTime: null };
 
@@ -247,13 +250,13 @@ export async function fetchStats(port: number, csrfToken: string): Promise<Usage
       group.quota = modelQuota;
     }
 
-    const resetTimeStr = quotaInfo?.resetTime;
-    if (typeof resetTimeStr === 'string' && resetTimeStr.length > 0) {
-      const resetTimestamp = new Date(resetTimeStr).getTime();
-      if (Number.isFinite(resetTimestamp)) {
-        if (group.resetTime === null || resetTimestamp < group.resetTime) {
-          group.resetTime = resetTimestamp;
-        }
+    const rawResetTime = quotaInfo?.resetTime;
+    if (rawResetTime != null) {
+      const resetTimestamp = typeof rawResetTime === 'number'
+        ? rawResetTime
+        : new Date(rawResetTime).getTime();
+      if (Number.isFinite(resetTimestamp) && (group.resetTime === null || resetTimestamp < group.resetTime)) {
+        group.resetTime = resetTimestamp;
       }
     }
   }

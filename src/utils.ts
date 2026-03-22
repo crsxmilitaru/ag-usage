@@ -18,43 +18,56 @@ export function executeCommand(command: string, args: string[], timeoutMs: numbe
     const proc = spawn(command, args, { shell: false });
     let stdout = '';
     let stderr = '';
-    let timedOut = false;
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
+    let settled = false;
+
+    const settle = (fn: () => void) => {
+      if (settled) { return; }
+      settled = true;
+      clearTimeout(timeout);
+      fn();
+    };
 
     const timeout = setTimeout(() => {
-      timedOut = true;
       proc.kill();
-      reject(new Error(`Command timed out after ${timeoutMs}ms`));
+      settle(() => reject(new Error(`Command '${command}' timed out after ${timeoutMs}ms`)));
     }, timeoutMs);
 
     proc.stdout.on('data', (data: Buffer) => {
-      if (stdout.length + data.length > MAX_BUFFER_SIZE) {
-        clearTimeout(timeout);
+      if (settled) { return; }
+      stdoutBytes += data.length;
+      if (stdoutBytes > MAX_BUFFER_SIZE) {
         proc.kill();
-        reject(new Error(`Command output exceeded ${MAX_BUFFER_SIZE} bytes`));
+        settle(() => reject(new Error(`Command '${command}' output exceeded ${MAX_BUFFER_SIZE} bytes`)));
         return;
       }
       stdout += data.toString();
     });
 
     proc.stderr.on('data', (data: Buffer) => {
-      if (stderr.length + data.length > MAX_BUFFER_SIZE) {
+      stderrBytes += data.length;
+      if (stderrBytes > MAX_BUFFER_SIZE) {
         return;
       }
       stderr += data.toString();
     });
 
     proc.on('error', (err) => {
-      clearTimeout(timeout);
-      reject(err);
+      settle(() => {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+          reject(new Error(`'${command}' not found. Make sure it is installed and available in your PATH.`));
+        } else {
+          reject(err);
+        }
+      });
     });
 
     proc.on('close', (code) => {
-      clearTimeout(timeout);
-      if (timedOut) { return; }
       if (code === 0) {
-        resolve(stdout);
+        settle(() => resolve(stdout));
       } else {
-        reject(new Error(stderr || `Command exited with code ${code}`));
+        settle(() => reject(new Error(stderr.trim() || `Command '${command}' exited with code ${code}`)));
       }
     });
   });

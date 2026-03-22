@@ -4,7 +4,6 @@ export const CONFIG_NAMESPACE = 'ag-usage';
 export const REFRESH_COMMAND = 'ag-usage.refresh';
 export const EXTENSION_TITLE = 'AG Usage';
 export const SETTINGS_COMMAND = 'ag-usage.openSettings';
-export const RESET_SESSION_COMMAND = 'ag-usage.resetSession';
 export const OPEN_PANEL_COMMAND = 'ag-usage.openPanel';
 export const EXPORT_HISTORY_COMMAND = 'ag-usage.exportHistory';
 export const INITIAL_DELAY_MS = 1500;
@@ -26,6 +25,7 @@ export const FAILED_REFRESH_DELAY_MS = 5000;
 export const MAX_FAILED_REFRESH_DELAY_MS = 60000;
 export const MAX_STATUS_TEXT_LENGTH = 120;
 export const MAX_PORT_VALIDATION_ATTEMPTS = 2;
+export const HEATMAP_MAX_DAYS = 180;
 
 export const PROCESS_IDENTIFIERS = {
   LANGUAGE_SERVER: 'language_server',
@@ -73,8 +73,8 @@ export const THEME_COLORS = {
 };
 
 export const CATEGORY_NAMES = {
-  GEMINI_PRO: 'Gemini 3.1 Pro',
-  GEMINI_FLASH: 'Gemini 3 Flash',
+  GEMINI_PRO: 'Gemini Pro',
+  GEMINI_FLASH: 'Gemini Flash',
   CLAUDE_GPT: 'Claude/GPT'
 } as const;
 
@@ -87,8 +87,8 @@ export const DISPLAY_MODE_TO_CATEGORY: Record<string, string> = {
 };
 
 export const SHORT_NAMES: Record<string, string> = {
-  'Gemini 3.1 Pro': 'Pro',
-  'Gemini 3 Flash': 'Flash',
+  'Gemini Pro': 'Pro',
+  'Gemini Flash': 'Flash',
   'Claude/GPT': 'C/G'
 };
 

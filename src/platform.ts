@@ -31,7 +31,7 @@ class WindowsPlatform implements PlatformStrategy {
         ]);
         return this.parseWmicOutput(stdout);
       } catch (wmicError) {
-        throw new Error(`Failed to query Windows processes: ${getErrorMessage(wmicError)}`);
+        throw new Error(`Failed to query Windows processes. Neither 'powershell' nor 'wmic' are available: ${getErrorMessage(wmicError)}`);
       }
     }
 
@@ -70,7 +70,7 @@ class WindowsPlatform implements PlatformStrategy {
         stdout = await executeCommand('netstat', ['-ano', '-p', 'tcp']);
         return this.parseNetstatOutput(stdout, pid);
       } catch (error) {
-        throw new Error(`Failed to query Windows ports: ${getErrorMessage(error)}`);
+        throw new Error(`Failed to query Windows ports. Neither 'powershell' nor 'netstat' are available: ${getErrorMessage(error)}`);
       }
     }
 
@@ -200,7 +200,7 @@ class UnixPlatform implements PlatformStrategy {
       }
     }
 
-    throw new Error(`Failed to query Unix ports. Attempts: ${errors.join('; ')}`);
+    throw new Error(`Failed to query Unix ports. None of 'ss', 'lsof', or 'netstat' succeeded: ${errors.join('; ')}`);
   }
 
   private getEnvValue(environ: Buffer, keyToFind: string): string | undefined {
@@ -271,9 +271,11 @@ class UnixPlatform implements PlatformStrategy {
   }
 }
 
+let cachedStrategy: PlatformStrategy | null = null;
+
 export function getPlatformStrategy(): PlatformStrategy {
-  if (os.platform() === 'win32') {
-    return new WindowsPlatform();
+  if (!cachedStrategy) {
+    cachedStrategy = os.platform() === 'win32' ? new WindowsPlatform() : new UnixPlatform();
   }
-  return new UnixPlatform();
+  return cachedStrategy;
 }

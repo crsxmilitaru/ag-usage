@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
-import { CATEGORY_ORDER, COLOR_THRESHOLDS, EXTENSION_TITLE, MS_PER_HOUR, MS_PER_MINUTE, OPEN_PANEL_COMMAND, RESET_SESSION_COMMAND, SETTINGS_COMMAND, SVG_CONFIG, THEME_COLORS } from './constants';
-import { formatRelativeTime, formatRemainingTimeSeparate, formatStatusBarText } from './formatter';
-import { QuotaGroup, SessionQuotaTracker, UsageStatistics } from './types';
+import { CATEGORY_ORDER, COLOR_THRESHOLDS, EXTENSION_TITLE, MS_PER_HOUR, MS_PER_MINUTE, OPEN_PANEL_COMMAND, SETTINGS_COMMAND, SVG_CONFIG, THEME_COLORS } from './constants';
+import { formatQuotaPercent, formatRemainingTimeSeparate, formatStatusBarText } from './formatter';
+import { QuotaGroup, UsageStatistics } from './types';
 import { isNotStartedQuota } from './utils';
 
 const PLAN = {
@@ -15,31 +15,23 @@ type PlanType = typeof PLAN[keyof typeof PLAN];
 const LAYOUT = {
   cardPadding: 5,
   cardRadius: 10,
-  textYCategory: 18,
-  textYPercent: 42,
-  barY: 59,
+  textYCategory: 20,
+  textYPercent: 46,
+  barY: 65,
   barHeight: 5,
   barRadius: 2.5,
   textStyle: 'text-anchor="middle" dominant-baseline="middle" font-family="system-ui, sans-serif"'
 };
 
-const LAYOUT_FULL = {
-  cardHeight: 132,
-  svgHeight: 142,
-  textYSession: 78,
-  separatorY: 92,
-  textYTime: 115
-};
-
 const LAYOUT_COMPACT = {
-  cardHeight: 104,
-  svgHeight: 112,
-  separatorY: 74,
-  textYTime: 86
+  cardHeight: 116,
+  svgHeight: 126,
+  separatorY: 82,
+  textYTime: 98
 };
 
 const OPACITY = {
-  veryLow: 0.2,
+  low: 0.4,
   medium: 0.6,
   high: 0.8
 };
@@ -53,8 +45,6 @@ const XML_ESCAPES: Record<string, string> = {
 };
 
 const MAX_GROUPS_VALIDATION = 100;
-const SESSION_THRESHOLD_LOW = 10;
-const SESSION_THRESHOLD_MEDIUM = 40;
 
 interface ThemeColors {
   text: string;
@@ -71,11 +61,6 @@ interface CategorySvgOptions {
   group: QuotaGroup;
   xPosition: number;
   colors: ThemeColors;
-  hasSession: boolean;
-  isPerWindow: boolean;
-  sessionConsumed?: number;
-  sessionElapsedMs?: number;
-
   plan: PlanType;
 }
 
@@ -89,12 +74,6 @@ function getBarColor(percentage: number, colors: ThemeColors): string {
   const { high, medium } = COLOR_THRESHOLDS;
   if (percentage >= high.value) return colors.success;
   if (percentage >= medium.value) return colors.warning;
-  return colors.error;
-}
-
-function getSessionColor(consumed: number, colors: ThemeColors): string {
-  if (consumed <= SESSION_THRESHOLD_LOW) return colors.success;
-  if (consumed <= SESSION_THRESHOLD_MEDIUM) return colors.warning;
   return colors.error;
 }
 
@@ -125,7 +104,7 @@ function buildCountdownSvg(centerX: number, y: number, relative: string, absolut
     return `<text x="${centerX}" y="${y}" fill="${color}" fill-opacity="${OPACITY.high}" ${LAYOUT.textStyle} font-size="14" font-weight="600">${relative}</text>`;
   }
   return `
-    <text x="${centerX}" y="${y - 5}" fill="${color}" fill-opacity="${OPACITY.high}" ${LAYOUT.textStyle} font-size="13" font-weight="600">${relative}</text>
+    <text x="${centerX}" y="${y - 5}" fill="${color}" fill-opacity="${OPACITY.high}" ${LAYOUT.textStyle} font-size="14" font-weight="600">${relative}</text>
     <text x="${centerX}" y="${y + 11}" fill="${color}" fill-opacity="${OPACITY.medium}" ${LAYOUT.textStyle} font-size="10" font-weight="500">${absolute}</text>`;
 }
 
@@ -134,13 +113,10 @@ function buildTimeLeftSvg(centerX: number, y: number, timer: ReturnType<typeof f
   const countdown = buildCountdownSvg(centerX, y, escapeXml(timer.relativeText), timer.absoluteText ? escapeXml(timer.absoluteText) : null, color);
 
   if (isWeeklyQuotaTriggered && showLabel) {
-    const baseOffset = timer.absoluteText ? 13 : 0;
-    const sepY = y + baseOffset + 10;
-    const textY1 = sepY + 20;
+    const textY1 = LAYOUT_COMPACT.textYTime;
     const textY2 = textY1 + 10;
 
     return countdown +
-      buildSeparatorSvg(centerX, sepY, colors.text) +
       `<text x="${centerX}" y="${textY1}" fill="${colors.error}" ${LAYOUT.textStyle} font-size="9" font-weight="600">WEEKLY QUOTA</text>` +
       `<text x="${centerX}" y="${textY2}" fill="${colors.error}" ${LAYOUT.textStyle} font-size="9" font-weight="600">EXCEEDED</text>`;
   }
@@ -151,25 +127,9 @@ function buildTimeLeftSvg(centerX: number, y: number, timer: ReturnType<typeof f
 function buildZeroPercentState(centerX: number, centerY: number, resetTime: number, colors: ThemeColors, isWeeklyQuotaTriggered: boolean): string {
   const timer = formatRemainingTimeSeparate(resetTime);
   const color = timer.diffMs < 10 * MS_PER_MINUTE ? colors.success : colors.text;
-  const clockY = isWeeklyQuotaTriggered ? centerY - 32 : (timer.absoluteText ? centerY - 20 : centerY - 15);
-  const timeY = isWeeklyQuotaTriggered ? centerY : centerY + 15;
+  const clockY = isWeeklyQuotaTriggered ? centerY - 24 : centerY - 15;
+  const timeY = isWeeklyQuotaTriggered ? centerY + 6 : centerY + 15;
   return buildClockSvg(centerX, clockY, color, OPACITY.medium) + buildTimeLeftSvg(centerX, timeY, timer, colors, isWeeklyQuotaTriggered, true);
-}
-
-function buildSessionInfoSvg(centerX: number, y: number, consumed: number, elapsedMs: number | undefined, isPerWindow: boolean, colors: ThemeColors): string {
-  const color = getSessionColor(consumed, colors);
-  const elapsedText = elapsedMs ? formatRelativeTime(elapsedMs) : '';
-  const isZero = consumed === 0 && (!elapsedMs || elapsedMs < 60000);
-  const windowIcon = isPerWindow ? ' ▣' : '';
-
-  const percentText = escapeXml(isZero ? '↓ -' : `↓ ${consumed}%`);
-  const timeText = escapeXml(isZero ? windowIcon : ` in ${elapsedText}${windowIcon}`);
-
-  return `
-    <text x="${centerX}" y="${y}" ${LAYOUT.textStyle} font-size="11.25" font-weight="500">
-      <tspan fill="${color}">${percentText}</tspan>
-      <tspan fill="${colors.text}" fill-opacity="${OPACITY.medium}">${timeText}</tspan>
-    </text>`;
 }
 
 function buildProgressBarSvg(centerX: number, textYPercent: number, percentage: number, barColor: string, barY: number, barWidth: number, barHeight: number, barRadius: number, barBackground: string): string {
@@ -198,10 +158,6 @@ function buildProgressBarSvg(centerX: number, textYPercent: number, percentage: 
   return '\n    ' + elements.join('\n    ');
 }
 
-function buildSeparatorSvg(centerX: number, y: number, color: string): string {
-  return `<line x1="${centerX - 17}" y1="${y}" x2="${centerX + 17}" y2="${y}" stroke="${color}" stroke-opacity="${OPACITY.veryLow}" stroke-width="1"/>`;
-}
-
 function isValidUsageStatistics(data: unknown): data is UsageStatistics {
   if (!data || typeof data !== 'object') { return false; }
   const d = data as Record<string, unknown>;
@@ -211,76 +167,63 @@ function isValidUsageStatistics(data: unknown): data is UsageStatistics {
 }
 
 function buildCategorySvg(options: CategorySvgOptions): string {
-  const { category, group, xPosition, colors, hasSession, isPerWindow, sessionConsumed, sessionElapsedMs, plan } = options;
+  const { category, group, xPosition, colors, plan } = options;
   const { columnWidth, barWidth } = SVG_CONFIG;
   const { cardPadding, cardRadius, textYCategory, textYPercent, barY, barHeight, barRadius } = LAYOUT;
-  const { cardHeight, separatorY, textYTime } = hasSession ? LAYOUT_FULL : LAYOUT_COMPACT;
 
   const centerX = xPosition + columnWidth / 2;
-  const percentage = Math.round(Math.max(0, Math.min(1, group.quota)) * 100);
+  const percentage = formatQuotaPercent(group.quota);
   const barColor = getBarColor(percentage, colors);
   const label = escapeXml(category).toUpperCase();
   const resetMs = group.resetTime ? group.resetTime - Date.now() : 0;
-  const isWeeklyQuotaTriggered = (plan === PLAN.PRO || plan === PLAN.ULTRA) && resetMs > 5 * MS_PER_HOUR;
+  const isWeeklyQuotaTriggered = (plan === PLAN.PRO || plan === PLAN.ULTRA) && resetMs > 18 * MS_PER_HOUR;
 
   const cardX = xPosition + cardPadding;
   const cardW = columnWidth - (cardPadding * 2);
 
   let svg = `
-    <rect x="${cardX}" y="${cardPadding}" rx="${cardRadius}" width="${cardW}" height="${cardHeight}" fill="${colors.cardFill}" stroke="${colors.cardBorder}" stroke-width="1"/>
+    <rect x="${cardX}" y="${cardPadding}" rx="${cardRadius}" width="${cardW}" height="${LAYOUT_COMPACT.cardHeight}" fill="${colors.cardFill}" stroke="${colors.cardBorder}" stroke-width="1"/>
     <text x="${centerX}" y="${textYCategory}" fill="${colors.text}" fill-opacity="${OPACITY.high}" ${LAYOUT.textStyle} font-size="9" font-weight="500" letter-spacing="0.5">${label}</text>`;
 
   if (percentage === 0 && typeof group.resetTime === 'number') {
-    return svg + buildZeroPercentState(centerX, cardPadding + cardHeight / 2, group.resetTime, colors, isWeeklyQuotaTriggered);
+    return svg + buildZeroPercentState(centerX, cardPadding + LAYOUT_COMPACT.cardHeight / 2, group.resetTime, colors, isWeeklyQuotaTriggered);
   }
 
   svg += buildProgressBarSvg(centerX, textYPercent, percentage, barColor, barY, barWidth, barHeight, barRadius, colors.barBackground);
 
-  if (hasSession && sessionConsumed !== undefined) {
-    svg += buildSessionInfoSvg(centerX, LAYOUT_FULL.textYSession, sessionConsumed, sessionElapsedMs, isPerWindow, colors);
-    if (percentage >= 100 || typeof group.resetTime === 'number') {
-      svg += buildSeparatorSvg(centerX, separatorY, colors.text);
-    }
+  if (isNotStartedQuota(percentage, resetMs)) {
+    const notStartedY = (barY + barHeight + cardPadding + LAYOUT_COMPACT.cardHeight) / 2 + 4;
+    svg += `<text x="${centerX}" y="${notStartedY}" fill="${colors.text}" fill-opacity="${OPACITY.low}" ${LAYOUT.textStyle} font-size="11" font-weight="500">Not started</text>`;
+    return svg;
   }
 
-  if (isNotStartedQuota(percentage, resetMs)) {
-    svg += `<text x="${centerX}" y="${textYTime}" fill="${colors.text}" fill-opacity="${OPACITY.medium}" ${LAYOUT.textStyle} font-size="12" font-weight="500">Not started</text>`;
-  } else if (typeof group.resetTime === 'number') {
-    svg += buildTimeLeftSvg(centerX, textYTime, formatRemainingTimeSeparate(group.resetTime), colors, isWeeklyQuotaTriggered, false);
+  if (typeof group.resetTime === 'number') {
+    svg += buildTimeLeftSvg(centerX, LAYOUT_COMPACT.textYTime, formatRemainingTimeSeparate(group.resetTime), colors, isWeeklyQuotaTriggered, false);
   }
 
   return svg;
 }
 
-function buildSvgContent(categories: string[], groups: Record<string, QuotaGroup>, hasSession: boolean, isPerWindow: boolean, plan: PlanType, sessionUsages?: Record<string, number> | null, sessionElapsedMs?: number): string {
+function buildSvgContent(categories: string[], groups: Record<string, QuotaGroup>, plan: PlanType): string {
   const { columnWidth, columnPadding } = SVG_CONFIG;
   const colors = getThemeColors();
-
-  const baseLayout = hasSession ? LAYOUT_FULL : LAYOUT_COMPACT;
-  const svgHeight = baseLayout.svgHeight;
 
   const totalWidth = categories.length > 0
     ? categories.length * columnWidth + (categories.length - 1) * columnPadding
     : columnWidth;
 
   let svg = `<?xml version="1.0" encoding="UTF-8"?>
-<svg width="${totalWidth}" height="${svgHeight}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${EXTENSION_TITLE} Statistics">`;
+<svg width="${totalWidth}" height="${LAYOUT_COMPACT.svgHeight}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${EXTENSION_TITLE} Statistics">`;
 
   categories.forEach((category, index) => {
     const group = groups[category];
     if (group) {
       const xPosition = index * (columnWidth + columnPadding);
-      const sessionConsumed = sessionUsages?.[category];
-      const elapsedMs = sessionConsumed !== undefined ? sessionElapsedMs : undefined;
       svg += buildCategorySvg({
         category,
         group,
         xPosition,
         colors,
-        hasSession,
-        isPerWindow,
-        sessionConsumed,
-        sessionElapsedMs: elapsedMs,
         plan
       });
     }
@@ -290,23 +233,7 @@ function buildSvgContent(categories: string[], groups: Record<string, QuotaGroup
   return svg;
 }
 
-function calculatePerCategorySessionUsage(groups: Record<string, QuotaGroup>, sessionTracker: SessionQuotaTracker | null): Record<string, number> | null {
-  if (!sessionTracker) { return null; }
-
-  const result: Record<string, number> = {};
-  const entries = Object.entries(sessionTracker.cumulativeConsumed);
-
-  for (const [category, raw] of entries) {
-    const baseline = sessionTracker.focusBaseline?.[category];
-    const group = groups[category];
-    const focusConsumed = (baseline !== undefined && group) ? Math.max(0, baseline - group.quota) : 0;
-    result[category] = Math.round((raw + focusConsumed) * 100);
-  }
-
-  return entries.length > 0 ? result : null;
-}
-
-export function renderStats(data: UsageStatistics, sessionTracker: SessionQuotaTracker | null, isPerWindow: boolean): { text: string; tooltip: vscode.MarkdownString } {
+export function renderStats(data: UsageStatistics): { text: string; tooltip: vscode.MarkdownString } {
   if (!isValidUsageStatistics(data)) {
     return {
       text: `$(warning) ${EXTENSION_TITLE}`,
@@ -316,23 +243,21 @@ export function renderStats(data: UsageStatistics, sessionTracker: SessionQuotaT
 
   const { groups } = data;
   const categories = CATEGORY_ORDER.filter(category => groups[category]);
-  const hasSession = sessionTracker !== null;
-  const sessionUsages = calculatePerCategorySessionUsage(groups, sessionTracker);
-  const sessionElapsedMs = sessionTracker ? Date.now() - sessionTracker.sessionStartTime : undefined;
   const plan = (data.plan?.toLowerCase() as PlanType) ?? PLAN.FREE;
 
-  const svgContent = buildSvgContent(categories, groups, hasSession, isPerWindow, plan, sessionUsages, sessionElapsedMs);
+  const svgContent = buildSvgContent(categories, groups, plan);
 
-  const planDisplay = data.planName ?? (plan.charAt(0).toUpperCase() + plan.slice(1));
+  const rawPlanDisplay = data.planName ?? plan.replace(/\b\w/g, c => c.toUpperCase());
+  const planDisplay = escapeXml(rawPlanDisplay);
 
   const tooltip = new vscode.MarkdownString();
   tooltip.appendMarkdown(`<img src="data:image/svg+xml;base64,${Buffer.from(svgContent).toString('base64')}"/>\n\n`);
-  tooltip.appendMarkdown(`<div align="center"><strong>${planDisplay}</strong> · <a href="command:${OPEN_PANEL_COMMAND}">Dashboard</a> · <a href="command:ag-usage.openModelsSettings">Models</a> · <a href="command:${SETTINGS_COMMAND}">Settings</a> · <a href="command:${RESET_SESSION_COMMAND}">Reset Session</a></div>`);
+  tooltip.appendMarkdown(`<div align="center"><strong>${planDisplay}</strong> · <a href="command:${OPEN_PANEL_COMMAND}">Dashboard</a> · <a href="command:ag-usage.openModelsSettings">Models</a> · <a href="command:${SETTINGS_COMMAND}">Settings</a></div>`);
   tooltip.isTrusted = true;
   tooltip.supportHtml = true;
 
   return {
-    text: formatStatusBarText(groups, categories, sessionUsages),
+    text: formatStatusBarText(groups, categories),
     tooltip
   };
 }

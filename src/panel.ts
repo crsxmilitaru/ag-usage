@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
 import { CATEGORY_ORDER, CONFIG_NAMESPACE } from './constants';
-import { formatFullTimestamp, formatRelativeTime, formatRemainingTimeSeparate } from './formatter';
+import { formatFullTimestamp, formatLocalDate, formatQuotaPercent, formatRelativeTime, formatRemainingTimeSeparate, resolveLocale } from './formatter';
 import { QuotaHistory, QuotaHistoryEntry } from './history';
-import { QuotaGroup, UsageStatistics } from './types';
+import { DailyUsageEntry, QuotaGroup, UsageStatistics } from './types';
 import { isNotStartedQuota } from './utils';
 
 export class UsageViewProvider implements vscode.WebviewViewProvider {
@@ -10,7 +10,10 @@ export class UsageViewProvider implements vscode.WebviewViewProvider {
 	private view?: vscode.WebviewView;
 	private lastStatsData: UsageStatistics | null = null;
 	private quotaHistory: QuotaHistory | null = null;
+	private heatmapMonth: number = new Date().getMonth();
+	private heatmapYear: number = new Date().getFullYear();
 	private disposables: vscode.Disposable[] = [];
+	public onHistoryChanged?: (history: QuotaHistory) => void;
 
 	public resolveWebviewView(
 		webviewView: vscode.WebviewView,
@@ -21,6 +24,7 @@ export class UsageViewProvider implements vscode.WebviewViewProvider {
 
 		webviewView.webview.options = {
 			enableScripts: true,
+			localResourceRoots: []
 		};
 
 		webviewView.onDidDispose(() => {
@@ -29,12 +33,27 @@ export class UsageViewProvider implements vscode.WebviewViewProvider {
 
 		webviewView.webview.onDidReceiveMessage((message) => {
 			if (message.command === 'clearHistory') {
-				if (this.quotaHistory) {
+				if (this.quotaHistory && typeof message.category === 'string' && message.category.length < 100) {
 					this.quotaHistory.clearCategory(message.category);
+					this.onHistoryChanged?.(this.quotaHistory);
 					this.updateView();
 				}
 			} else if (message.command === 'openAntigravitySettings') {
 				vscode.commands.executeCommand('workbench.action.openAntigravitySettingsWithId', undefined, 'Models');
+			} else if (message.command === 'prevMonth') {
+				this.heatmapMonth--;
+				if (this.heatmapMonth < 0) {
+					this.heatmapMonth = 11;
+					this.heatmapYear--;
+				}
+				this.updateView();
+			} else if (message.command === 'nextMonth') {
+				this.heatmapMonth++;
+				if (this.heatmapMonth > 11) {
+					this.heatmapMonth = 0;
+					this.heatmapYear++;
+				}
+				this.updateView();
 			}
 		}, null, this.disposables);
 
@@ -52,9 +71,8 @@ export class UsageViewProvider implements vscode.WebviewViewProvider {
 	private updateView() {
 		if (!this.view || !this.quotaHistory) { return; }
 		const config = vscode.workspace.getConfiguration(CONFIG_NAMESPACE);
-		const localeSetting = config.get<string>('dateFormatLocale', 'default');
-		const locale = localeSetting === 'default' ? undefined : localeSetting;
-		this.view.webview.html = buildPanelHtml(this.lastStatsData, this.quotaHistory, locale);
+		const locale = resolveLocale(config.get<string>('dateFormatLocale', 'default'));
+		this.view.webview.html = buildPanelHtml(this.lastStatsData, this.quotaHistory, this.heatmapMonth, this.heatmapYear, locale);
 	}
 
 	dispose() {
@@ -68,10 +86,8 @@ function escapeHtml(text: string): string {
 }
 
 function formatPercent(fraction: number): string {
-	return `${Math.round(Math.max(0, Math.min(1, fraction)) * 100)}%`;
+	return `${formatQuotaPercent(fraction)}%`;
 }
-
-
 
 function getBarColorClass(fraction: number): string {
 	const pct = fraction * 100;
@@ -183,7 +199,7 @@ function buildHistorySparkline(entries: QuotaHistoryEntry[], locale?: string): s
 		pathD += (i === 0 ? 'M' : 'L') + `${x},${y}`;
 
 		const timeStr = formatFullTimestamp(entry.timestamp, locale);
-		const tooltip = `Quota: ${Math.round(pct)}%&#10;Time: ${timeStr}`;
+		const tooltip = `Quota: ${Math.round(pct)}%\nTime: ${timeStr}`;
 
 		const dotColor = pct >= 100 ? 'var(--success)' : pct < 20 ? 'var(--error)' : lineColor;
 		dotsHtml += `<circle cx="${x}" cy="${y}" r="3" fill="${dotColor}" stroke="var(--card-bg)" stroke-width="1.5"><title>${tooltip}</title></circle>`;
@@ -219,7 +235,7 @@ function buildHistorySectionHtml(category: string, categoryEntries: QuotaHistory
 		const previousEntry = categoryEntries[index + 1];
 		return buildHistoryItemHtml(entry, previousEntry, locale);
 	}).join('')}
-					<div class="history-clear-row" data-category="${escapeHtml(category)}" onclick="clearCatHistory(event, this)">
+					<div class="history-clear-row" role="button" tabindex="0" data-category="${escapeHtml(category)}" onclick="clearCatHistory(event, this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();clearCatHistory(event,this)}">
 						<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M10 3h3v1h-1v9l-1 1H4l-1-1V4H2V3h3V2a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1zM6 2v1h3V2H6zm4 11V4H5v9h5z" /></svg>
 						<span>Clear History</span>
 					</div>
@@ -239,7 +255,7 @@ function buildCardHeaderHtml(category: string, group: QuotaGroup | undefined, lo
 			</div>`;
 	}
 
-	const pct = Math.round(Math.max(0, Math.min(1, group.quota)) * 100);
+	const pct = formatQuotaPercent(group.quota);
 	const colorClass = getBarColorClass(group.quota);
 	let resetValueHtml = 'Not started';
 	if (group.resetTime) {
@@ -272,7 +288,7 @@ function buildCardHeaderHtml(category: string, group: QuotaGroup | undefined, lo
 					${Array.from({ length: 5 }).map((_, i) => {
 		const startPct = i * 20;
 		const fillPct = Math.max(0, Math.min(100, (pct - startPct) * 5));
-		return `<div class="quota-bar-segment-bg"><div class="quota-bar-segment-fill ${colorClass} w-${fillPct}"></div></div>`;
+		return `<div class="quota-bar-segment-bg"><div class="quota-bar-segment-fill ${colorClass}" style="width:${fillPct}%"></div></div>`;
 	}).join('')}
 				</div>
 				<div class="quota-reset">
@@ -294,17 +310,10 @@ function buildQuotaCards(statsData: UsageStatistics | null, history: QuotaHistor
 		grouped.set(entry.category, catEntries);
 	}
 
-	const seen = new Set<string>();
-	const categories: string[] = [];
-	for (const c of CATEGORY_ORDER) {
-		if (groups[c] || grouped.has(c)) { seen.add(c); categories.push(c); }
-	}
-	for (const cat of [...Object.keys(groups), ...grouped.keys()]) {
-		if (!seen.has(cat)) { seen.add(cat); categories.push(cat); }
-	}
+	const categories = CATEGORY_ORDER.filter(c => groups[c] !== undefined || (grouped.has(c) && (grouped.get(c)?.length ?? 0) > 0));
 
 	if (categories.length === 0) {
-		if (!statsData) { return '<div class="empty-state">Waiting for data…</div>'; }
+		if (!statsData) { return '<div class="empty-state loading">Waiting for data…</div>'; }
 		return '<div class="empty-state">No quota data available</div>';
 	}
 
@@ -326,8 +335,6 @@ function buildQuotaCards(statsData: UsageStatistics | null, history: QuotaHistor
 			</div>`;
 	}).join('');
 }
-
-const WIDTH_CLASSES = Array.from({ length: 101 }, (_, i) => `.w-${i} { width: ${i}%; }`).join('\n');
 
 function getPanelStyles(): string {
 	return `
@@ -377,8 +384,7 @@ body {
 	scrollbar-gutter: stable;
 }
 
-.section.flex-grow {
-	flex: 1;
+.section {
 	display: flex;
 	flex-direction: column;
 }
@@ -387,11 +393,11 @@ body {
 	display: flex;
 	flex-direction: column;
 	gap: 12px;
-	flex: 1;
 }
 
 .panel-footer {
 	padding: 0;
+	padding-bottom: 10px;
 	font-size: 10px;
 	color: var(--text-muted);
 	text-align: center;
@@ -403,6 +409,13 @@ body {
 	color: var(--text-muted);
 	padding: 32px 16px;
 	font-style: italic;
+}
+.empty-state.loading {
+	animation: pulse 1.8s ease-in-out infinite;
+}
+@keyframes pulse {
+	0%, 100% { opacity: 0.4; }
+	50% { opacity: 1; }
 }
 
 .quota-card {
@@ -517,6 +530,11 @@ body {
 	list-style: none;
 	flex-shrink: 0;
 	padding-top: 4px;
+	border-radius: var(--radius-sm);
+}
+.card-history-summary:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 2px;
 }
 .card-history-summary::-webkit-details-marker { display: none; }
 .history-clear-row {
@@ -533,12 +551,14 @@ body {
 	transition: all 0.15s ease;
 	flex-shrink: 0;
 }
-.history-clear-row:hover {
+.history-clear-row:hover, .history-clear-row:focus-visible {
 	background: var(--table-row-hover);
 	color: var(--error);
 }
+.history-clear-row:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
 
-.history-chart { margin-top: 8px; background: var(--panel-bg); border-radius: var(--radius-sm); padding: 4px; }
+.history-chart { margin-top: 8px; background: var(--panel-bg); border-radius: var(--radius-sm); padding: 4px; transition: opacity 0.15s ease; opacity: 0.7; }
+.history-chart:hover { opacity: 1; }
 .history-chart svg { display: block; width: 100%; height: auto; }
 .history-chart circle { transition: r 0.15s ease; cursor: default; }
 .history-chart circle:hover { r: 4.5; }
@@ -605,7 +625,133 @@ body {
 .delta-negative { color: var(--error); }
 .cell-reset { color: var(--text-muted); font-size: 10px; }
 
-${WIDTH_CLASSES}
+.heatmap-section {
+	background: var(--card-bg);
+	border: 1px solid var(--card-border);
+	border-radius: var(--radius-lg);
+	padding: 14px 16px;
+	flex-shrink: 0;
+}
+.heatmap-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	margin-bottom: 12px;
+}
+.heatmap-title {
+	font-size: 12px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.6px;
+	color: var(--text-secondary);
+}
+.heatmap-nav {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	user-select: none;
+}
+.nav-btn {
+	background: transparent;
+	border: none;
+	color: var(--text-muted);
+	cursor: pointer;
+	font-size: 16px;
+	padding: 0 4px;
+	border-radius: 4px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	transition: all 0.1s ease;
+}
+.nav-btn:hover, .nav-btn:focus-visible {
+	color: var(--text-primary);
+	background: var(--table-row-hover);
+}
+.nav-btn:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.heatmap-month-title {
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--text-secondary);
+	text-transform: uppercase;
+	letter-spacing: 0.5px;
+	min-width: 80px;
+	text-align: center;
+}
+.heatmap-range {
+	font-size: 10px;
+	color: var(--text-muted);
+	display: none;
+}
+.heatmap-grid {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+.heatmap-labels {
+	display: flex;
+	gap: 3px;
+	padding-right: 0;
+	margin-left: 0;
+}
+.heatmap-label {
+	width: 14px;
+	font-size: 9px;
+	line-height: 14px;
+	color: var(--text-muted);
+	text-align: center;
+}
+.heatmap-columns {
+	display: flex;
+	gap: 3px;
+}
+.heatmap-column {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+}
+.heatmap-cell {
+	width: 14px;
+	height: 14px;
+	border-radius: 2px;
+	transition: opacity 0.15s ease;
+}
+.heatmap-cell:not(.future):hover {
+	opacity: 0.75;
+}
+.heatmap-cell.level-0,
+.heatmap-cell.future {
+	background: var(--table-border);
+}
+.heatmap-cell.level-1 { background: color-mix(in srgb, var(--success) 30%, var(--card-bg)); }
+.heatmap-cell.level-2 { background: color-mix(in srgb, var(--success) 50%, var(--card-bg)); }
+.heatmap-cell.level-3 { background: color-mix(in srgb, var(--success) 72%, var(--card-bg)); }
+.heatmap-cell.level-4 { background: var(--success); }
+.heatmap-cell.future { opacity: 0.15; }
+.heatmap-cell.other-month { opacity: 0.1 !important; }
+.heatmap-cell.today { outline: 1.5px solid var(--text-muted); outline-offset: -0.5px; }
+.heatmap-body {
+	display: flex;
+	justify-content: center;
+	align-items: flex-end;
+	gap: 18px;
+}
+.heatmap-legend {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 3px;
+	font-size: 9px;
+	color: var(--text-muted);
+}
+.heatmap-legend .heatmap-cell {
+	width: 10px;
+	height: 10px;
+}
+.heatmap-legend span {
+	margin: 1px 0;
+}
+
 `;
 }
 
@@ -647,8 +793,119 @@ function buildTopRow(statsData: UsageStatistics | null): string {
 	return `<div class="top-row">${planCard}${creditsCard}</div>`;
 }
 
-function buildPanelHtml(statsData: UsageStatistics | null, history: QuotaHistory, locale?: string): string {
+function getHeatmapLevel(consumed: number, maxConsumed: number): number {
+	if (consumed <= 0 || maxConsumed <= 0) { return 0; }
+	const ratio = consumed / maxConsumed;
+	if (ratio <= 0.25) { return 1; }
+	if (ratio <= 0.5) { return 2; }
+	if (ratio <= 0.75) { return 3; }
+	return 4;
+}
+
+function buildHeatmapSection(dailyUsage: ReadonlyArray<DailyUsageEntry>, targetMonth: number, targetYear: number, locale?: string): string {
+	const today = new Date();
+	today.setHours(0, 0, 0, 0);
+	const todayStr = formatLocalDate(today);
+
+	const firstDay = new Date(targetYear, targetMonth, 1);
+	const lastDay = new Date(targetYear, targetMonth + 1, 0);
+
+	const firstDow = (firstDay.getDay() + 6) % 7;
+	const startDate = new Date(firstDay);
+	startDate.setDate(firstDay.getDate() - firstDow);
+
+	const lastDow = (lastDay.getDay() + 6) % 7;
+	const endDate = new Date(lastDay);
+	endDate.setDate(lastDay.getDate() + (6 - lastDow));
+
+	const totalDays = Math.round((endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+	const weeks = Math.ceil(totalDays / 7);
+
+	const usageMap = new Map<string, number>();
+	let maxConsumed = 0;
+	for (const entry of dailyUsage) {
+		const combined = (usageMap.get(entry.date) || 0) + entry.consumed;
+		usageMap.set(entry.date, combined);
+		maxConsumed = Math.max(maxConsumed, combined);
+	}
+
+	const dayLabels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+	const labelsHtml = dayLabels.map(l =>
+		`<div class="heatmap-label">${l}</div>`
+	).join('');
+
+	let gridHtml = '';
+	for (let d = 0; d < 7; d++) {
+		let cellsHtml = '';
+		for (let w = 0; w < weeks; w++) {
+			const cellDate = new Date(startDate);
+			cellDate.setDate(startDate.getDate() + w * 7 + d);
+			const dateStr = formatLocalDate(cellDate);
+			const consumed = usageMap.get(dateStr) || 0;
+			const isFuture = dateStr > todayStr;
+			const isToday = dateStr === todayStr;
+			const isCurrentMonth = cellDate.getMonth() === targetMonth && cellDate.getFullYear() === targetYear;
+			const level = isFuture ? 0 : getHeatmapLevel(consumed, maxConsumed);
+
+			const classes = ['heatmap-cell'];
+			if (isFuture) {
+				classes.push('future');
+			} else {
+				classes.push(`level-${level}`);
+			}
+			if (isToday) { classes.push('today'); }
+			if (!isCurrentMonth) { classes.push('other-month'); }
+
+			let tooltip = '';
+			if (!isFuture) {
+				const tooltipDate = new Intl.DateTimeFormat(locale, { weekday: 'short', month: 'short', day: 'numeric' }).format(cellDate);
+				tooltip = consumed > 0
+					? `${tooltipDate}\n${Math.round(consumed * 100)}% consumed`
+					: `${tooltipDate}\nNo activity`;
+			}
+
+			cellsHtml += `<div class="${classes.join(' ')}"${tooltip ? ` title="${escapeHtml(tooltip)}"` : ''}></div>`;
+		}
+		gridHtml += `<div class="heatmap-column">${cellsHtml}</div>`;
+	}
+
+	const monthName = new Intl.DateTimeFormat(locale, { month: 'long' }).format(firstDay);
+
+	return `
+		<div class="heatmap-section">
+			<div class="heatmap-header">
+				<span class="heatmap-title">Usage Activity</span>
+				<div class="heatmap-nav">
+					<button class="nav-btn" onclick="prevMonth()">
+						<svg width="16" height="16" viewBox="0 0 16 16"><path fill="currentColor" d="M11 1.5L4.5 8l6.5 6.5l.707-.707L5.914 8l5.793-5.793L11 1.5z"/></svg>
+					</button>
+					<span class="heatmap-month-title">${escapeHtml(monthName)} ${targetYear}</span>
+					<button class="nav-btn" onclick="nextMonth()">
+						<svg width="16" height="16" viewBox="0 0 16 16"><path fill="currentColor" d="M5 1.5L11.5 8L5 14.5l-.707-.707L10.086 8L4.293 2.207L5 1.5z"/></svg>
+					</button>
+				</div>
+			</div>
+			<div class="heatmap-body">
+				<div class="heatmap-grid">
+					<div class="heatmap-labels">${labelsHtml}</div>
+					<div class="heatmap-columns">${gridHtml}</div>
+				</div>
+				<div class="heatmap-legend">
+					<span>More</span>
+					<div class="heatmap-cell level-4"></div>
+					<div class="heatmap-cell level-3"></div>
+					<div class="heatmap-cell level-2"></div>
+					<div class="heatmap-cell level-1"></div>
+					<div class="heatmap-cell level-0"></div>
+					<span>Less</span>
+				</div>
+			</div>
+		</div>`;
+}
+
+function buildPanelHtml(statsData: UsageStatistics | null, history: QuotaHistory, heatmapMonth: number, heatmapYear: number, locale?: string): string {
 	const topRow = buildTopRow(statsData);
+	const heatmap = buildHeatmapSection(history.getDailyUsage(), heatmapMonth, heatmapYear, locale);
 	const quotaCards = buildQuotaCards(statsData, history, locale);
 
 	return `<!DOCTYPE html>
@@ -656,15 +913,17 @@ function buildPanelHtml(statsData: UsageStatistics | null, history: QuotaHistory
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
 <style>
 ${getPanelStyles()}
 </style>
 </head>
 <body>
 	${topRow}
-	<div class="section flex-grow">
+	<div class="section">
 		<div class="quota-grid">${quotaCards}</div>
 	</div>
+	${heatmap}
 	<div class="panel-footer" id="lastUpdated">Updated just now</div>
 <script>
 const vscode = acquireVsCodeApi();
@@ -674,17 +933,30 @@ function updateFooter() {
 	const sec = Math.floor(diff / 1000);
 	const el = document.getElementById('lastUpdated');
 	if (!el) return;
-	if (sec < 10) el.textContent = 'Updated just now';
+	if (sec < 5) el.textContent = 'Updated just now';
 	else if (sec < 60) el.textContent = 'Updated ' + sec + 's ago';
 	else {
 		const min = Math.floor(sec / 60);
 		el.textContent = 'Updated ' + min + 'm ago';
 	}
 }
-setInterval(updateFooter, 10000);
+function scheduleFooter() {
+	const age = Date.now() - updatedAt;
+	const interval = age < 60000 ? 5000 : 15000;
+	setTimeout(() => { updateFooter(); scheduleFooter(); }, interval);
+}
+scheduleFooter();
 
 function openAntigravitySettings() {
 	vscode.postMessage({ command: 'openAntigravitySettings' });
+}
+
+function prevMonth() {
+	vscode.postMessage({ command: 'prevMonth' });
+}
+
+function nextMonth() {
+	vscode.postMessage({ command: 'nextMonth' });
 }
 
 function clearCatHistory(event, el) {

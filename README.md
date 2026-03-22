@@ -10,30 +10,29 @@
   <a href="https://open-vsx.org/extension/crsx/ag-usage"><img src="https://img.shields.io/open-vsx/v/crsx/ag-usage?logo=open-vsx&label=Open%20VSX&logoColor=white" alt="Open VSX Version"></a>
   <a href="https://open-vsx.org/extension/crsx/ag-usage"><img src="https://img.shields.io/open-vsx/dt/crsx/ag-usage" alt="Open VSX Downloads"></a>
   <br>
-  <a href="https://github.com/crsmilitaru97/ag-usage"><img src="https://img.shields.io/badge/GitHub-Repository-181717?logo=github&logoColor=white" alt="GitHub"></a>
-  <a href="https://github.com/crsmilitaru97/ag-usage/stargazers"><img src="https://img.shields.io/github/stars/crsmilitaru97/ag-usage" alt="GitHub Stars"></a>
-  <a href="https://github.com/crsmilitaru97/ag-usage/blob/main/LICENSE"><img src="https://img.shields.io/github/license/crsmilitaru97/ag-usage?style=flat" alt="License"></a>
+  <a href="https://github.com/crsxmilitaru/ag-usage"><img src="https://img.shields.io/badge/GitHub-Repository-181717?logo=github&logoColor=white" alt="GitHub"></a>
+  <a href="https://github.com/crsxmilitaru/ag-usage/stargazers"><img src="https://img.shields.io/github/stars/crsxmilitaru/ag-usage" alt="GitHub Stars"></a>
+  <a href="https://github.com/crsxmilitaru/ag-usage/blob/main/LICENSE"><img src="https://img.shields.io/github/license/crsxmilitaru/ag-usage?style=flat" alt="License"></a>
   <a href="https://www.paypal.com/donate?hosted_button_id=MZQS5CZ68NGEW"><img src="https://img.shields.io/badge/Donate-PayPal-00457C?logo=paypal&logoColor=white" alt="Donate"></a>
 </p>
 
 ---
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/crsmilitaru97/ag-usage/main/assets/dashboard.png" alt="AG Usage Dashboard" style="width: 38%; max-width: 300px; height: auto; border-radius: 12px; border: 1px solid #30363d; box-shadow: 0 4px 10px rgba(0,0,0,0.25); margin-right: 1.5%; vertical-align: middle;">
-  <img src="https://raw.githubusercontent.com/crsmilitaru97/ag-usage/main/assets/popup.png" alt="AG Usage Popup" style="width: 58%; max-width: 460px; height: auto; border-radius: 12px; border: 1px solid #30363d; box-shadow: 0 4px 10px rgba(0,0,0,0.25); vertical-align: middle;">
+  <img src="https://raw.githubusercontent.com/crsxmilitaru/ag-usage/main/assets/preview.png" alt="AG Usage Preview" style="width: 100%; max-width: 800px; border-radius: 8px; border: 1px solid #30363d; box-shadow: 0 4px 16px rgba(0,0,0,0.3);">
 </p>
 
 ## ✨ Features
 
-- **Webview panel**: Includes a dashboard showing your current quotas, Extra Credits, a complete history log of all usage changes, and a button to open the official Models page.
+- **Webview panel**: Includes a dashboard showing your current quotas, Extra Credits, a complete history log of all usage changes, a usage activity heatmap with monthly navigation, and a button to open the official Models page.
 
 - **Status bar integration**: Displays a status bar item showing the overall average usage percentage of your AI models.
 
 - **Auto-refresh**: Usage data is automatically updated every 60 seconds by default, but can be configured.
 
 - **Detailed tooltip**: Hover over the status bar item to see a detailed breakdown and visual progress bars for model categories (as they are calculated by Antigravity):
-  - **Gemini 3.1 Pro** - Gemini 3.1 Pro (High) and Gemini 3.1 Pro (Low)
-  - **Gemini 3 Flash** - Gemini 3 Flash
+  - **Gemini Pro** - Gemini 3.1 Pro (High) and Gemini 3.1 Pro (Low)
+  - **Gemini Flash** - Gemini 3 Flash
   - **Claude/GPT** - Claude Sonnet 4.6 (Thinking), Claude Opus 4.6 (Thinking) and GPT-OSS 120B (Medium)
 
 - **Quota reset timer**: Each model category displays the time remaining until quota resets, highlighted in green when less than 10 minutes remains. Time is displayed only when the Antigravity quota reset timer is triggered (first use of the AI model after a 100% usage).
@@ -49,7 +48,7 @@
 
 ## 📝 Configuration
 
-- `ag-usage.refreshInterval`: Set the interval (in seconds) between automatic refreshes. Default is `60` seconds.
+- `ag-usage.refreshInterval`: Set the interval (in seconds) between automatic refreshes. Set to `0` to disable auto-refresh. Default is `60` seconds.
 
 - `ag-usage.statusBarDisplay`: Control what information is shown in the status bar. Options:
   - `average` - Shows the average usage across all groups
@@ -64,8 +63,6 @@
 
 - `ag-usage.statusBarCountdown`: Show time remaining until next reset in the status bar when quota reaches 0%. Default is `true`.
 
-- `ag-usage.showSessionUsageInStatusBar`: Show the estimated usage since session start alongside the quota in the status bar (e.g., `50% (-5%)`). Default is `false`.
-
 - `ag-usage.notifyOnFullQuota`: Show a notification when a model category reaches 100% usage. Default is `false`.
 
 - `ag-usage.lowQuotaNotificationThreshold`: Percentage threshold to show a warning when quota drops below this value. Default is `0` (disabled). Set to a value like `10` to enable.
@@ -73,10 +70,6 @@
 - `ag-usage.resetTimeDisplay`: How to display the quota reset time. Options: `relative`, `absolute`, `both` (default).
 
 - `ag-usage.absoluteTimeFormat`: Time format for absolute reset time display. Options: `24h` (default), `12h`.
-
-- `ag-usage.trackSessionUsage`: Track session usage (quota used since window opened). Default is `true`.
-
-- `ag-usage.perWindowSession`: When enabled, session usage tracks only quota consumed while this window is focused. Usage from other windows is excluded. Default is `false`.
 
 - `ag-usage.dateFormatLocale`: Locale for date formatting (e.g., `'en-US'`, `'ro-RO'`, `'default'`). Default is `'default'`.
 
@@ -91,8 +84,6 @@
 - `ag-usage.openSettings`: Opens the AG Usage configuration page.
 
 - `ag-usage.openPanel`: Opens the AG Usage detailed webview panel that shows current quotas and history of quota changes.
-
-- `ag-usage.resetSession`: Manually triggers a reset of the session usage statistics (also accessible via the tooltip).
 
 - `ag-usage.exportHistory`: Export the metadata history log to a JSON file (available in the dashboard title bar).
 

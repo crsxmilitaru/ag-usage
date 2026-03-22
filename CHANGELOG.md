@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0] - 2026-03-22
+
+- Removed session usage tracking in favor of the dashboard history panel
+- Simplified model category names (Gemini Pro, Gemini Flash)
+- Added a usage activity heatmap to the dashboard with monthly navigation
+- General stability improvements and internal code cleanups
+
 ## [1.5.2] - 2026-03-13
 
 - Fixed "Not started" detection for 7-day reset times

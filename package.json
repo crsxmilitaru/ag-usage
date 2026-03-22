@@ -1,13 +1,13 @@
 {
   "name": "ag-usage",
-  "version": "1.5.2",
+  "version": "1.6.0",
   "displayName": "AG Usage",
   "description": "Track usage of Antigravity AI models",
   "author": "Cristian Militaru",
   "publisher": "crsx",
   "repository": {
     "type": "git",
-    "url": "https://github.com/crsmilitaru97/ag-usage"
+    "url": "https://github.com/crsxmilitaru/ag-usage"
   },
   "license": "ISC",
   "keywords": [
@@ -69,11 +69,6 @@
         "icon": "$(gear)"
       },
       {
-        "command": "ag-usage.resetSession",
-        "title": "Reset Session Usage",
-        "icon": "$(history)"
-      },
-      {
         "command": "ag-usage.openPanel",
         "title": "Open AG Usage Panel",
         "icon": "$(graph)"
@@ -90,7 +85,7 @@
         "ag-usage.refreshInterval": {
           "type": "number",
           "default": 60,
-          "minimum": 10,
+          "minimum": 0,
           "maximum": 3600,
           "description": "Refresh interval in seconds. Set to 0 to disable auto-refresh."
         },
@@ -117,11 +112,6 @@
           "type": "boolean",
           "default": true,
           "description": "Show time remaining until next reset in the status bar when quota reaches 0%."
-        },
-        "ag-usage.showSessionUsageInStatusBar": {
-          "type": "boolean",
-          "default": false,
-          "description": "Show the estimated usage since session start alongside the quota in the status bar (e.g. 50% -5%)."
         },
         "ag-usage.notifyOnFullQuota": {
           "type": "boolean",
@@ -162,16 +152,6 @@
             "Use 12-hour format (e.g., 2:07 PM)"
           ],
           "description": "Time format for absolute reset time display."
-        },
-        "ag-usage.trackSessionUsage": {
-          "type": "boolean",
-          "default": true,
-          "description": "Track session usage (quota used since window opened)."
-        },
-        "ag-usage.perWindowSession": {
-          "type": "boolean",
-          "default": false,
-          "description": "When enabled, session usage tracks only quota consumed while this window is focused. Usage from other windows is excluded."
         },
         "ag-usage.statusBarAlignment": {
           "type": "string",
@@ -228,8 +208,8 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node",
-    "watch": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --watch",
+    "compile": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --minify --tree-shaking=true",
+    "watch": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --sourcemap --watch",
     "package": "npx vsce package",
     "publish:ovsx": "npx ovsx publish"
   },

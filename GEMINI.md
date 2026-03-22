@@ -20,8 +20,11 @@ This is a Visual Studio Code extension (`ag-usage`) designed to track and displa
   - Identifying listening ports.
   - Fetching usage statistics from the local server.
 - `src/renderer.ts`: UI rendering logic. Constructs the status bar text and complex markdown tooltips.
+- `src/panel.ts`: Webview panel provider. Renders the detailed quota history and statistics in a side panel.
+- `src/history.ts`: Manages quota history state and tracks usage changes over time.
 - `src/formatter.ts`: Helper functions for formatting dates, times, and converting values to human-readable strings.
 - `src/types.ts`: TypeScript interfaces and type definitions.
+- `src/platform.ts`: Platform-specific strategies (Windows/Unix) for querying OS processes and parsing network ports using native commands.
 - `src/constants.ts`: Configuration keys, default values, and application constants.
 - `src/utils.ts`: General utility functions.
 - `package.json`: Defines the extension manifest, activation events, contribution points (commands, configuration), and build scripts.

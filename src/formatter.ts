@@ -2,6 +2,24 @@ import * as vscode from 'vscode';
 import { CONFIG_NAMESPACE, DISPLAY_MODE_TO_CATEGORY, MAX_STATUS_TEXT_LENGTH, MS_PER_DAY, MS_PER_HOUR, MS_PER_MINUTE, SHORT_NAMES } from './constants';
 import { AbsoluteTimeFormat, QuotaGroup, ResetTimeDisplayMode, StatusBarDisplayMode } from './types';
 
+export function formatQuotaPercent(fraction: number): number {
+  return Math.round(Math.max(0, Math.min(1, fraction)) * 100);
+}
+
+export function formatLocalDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export function resolveLocale(localeSetting: string): string | undefined {
+  if (localeSetting === 'default') { return undefined; }
+  try {
+    new Intl.DateTimeFormat(localeSetting);
+    return localeSetting;
+  } catch {
+    return undefined;
+  }
+}
+
 function formatAbsoluteTime(targetTime: number, format: AbsoluteTimeFormat, diffMs: number, locale?: string): string {
   const date = new Date(targetTime);
   const includeDate = diffMs >= MS_PER_DAY;
@@ -53,8 +71,7 @@ export function formatRemainingTimeSeparate(targetTime: number, now: number = Da
   const config = vscode.workspace.getConfiguration(CONFIG_NAMESPACE);
   const displayMode = config.get<ResetTimeDisplayMode>('resetTimeDisplay', 'both');
   const timeFormat = config.get<AbsoluteTimeFormat>('absoluteTimeFormat', '24h');
-  const localeSetting = config.get<string>('dateFormatLocale', 'default');
-  const locale = localeSetting === 'default' ? undefined : localeSetting;
+  const locale = resolveLocale(config.get<string>('dateFormatLocale', 'default'));
 
   const relativeText = formatRelativeTime(diffMs);
 
@@ -101,32 +118,22 @@ function getCountdownSuffix(groups: Record<string, QuotaGroup>, categories: stri
 
 export function formatStatusBarText(
   groups: Record<string, QuotaGroup>,
-  categories: string[],
-  sessionUsages?: Record<string, number> | null
+  categories: string[]
 ): string {
   const config = vscode.workspace.getConfiguration(CONFIG_NAMESPACE);
   const displayMode = config.get<StatusBarDisplayMode>('statusBarDisplay', 'all');
   const showCountdown = config.get<boolean>('statusBarCountdown', true);
-  const showSessionUsage = config.get<boolean>('showSessionUsageInStatusBar', false);
   const countdownSuffix = getCountdownSuffix(groups, categories, showCountdown);
 
   const formatGroup = (name: string, group: QuotaGroup) => {
     const label = SHORT_NAMES[name] ?? name;
-    let suffix = '';
-
-    if (showSessionUsage && sessionUsages && typeof sessionUsages[name] === 'number') {
-      const usage = sessionUsages[name];
-      if (usage > 0) {
-        suffix = ` (-${usage}%)`;
-      }
-    }
 
     if (showCountdown && group.quota <= 0 && typeof group.resetTime === 'number') {
       const diffMs = Math.max(0, group.resetTime - Date.now());
       const shortTime = formatRelativeTime(diffMs);
-      return `${label} ~${shortTime}${suffix}`;
+      return `${label} ~${shortTime}`;
     }
-    return `${label} ${Math.round(group.quota * 100)}%${suffix}`;
+    return `${label} ${formatQuotaPercent(group.quota)}%`;
   };
 
   if (displayMode === 'all') {
@@ -157,20 +164,11 @@ export function formatStatusBarText(
   const averageQuota = totalQuota / categories.length;
   const percentage = Math.round(averageQuota * 100);
 
-  let avgSuffix = '';
-  if (showSessionUsage && sessionUsages && categories.length > 0) {
-    const totalSessionUsage = categories.reduce((sum, cat) => sum + (sessionUsages[cat] || 0), 0);
-    const avgSessionUsage = Math.round(totalSessionUsage / categories.length);
-    if (avgSessionUsage > 0) {
-      avgSuffix = ` (-${avgSessionUsage}%)`;
-    }
-  }
-
   if (percentage === 0 && countdownSuffix) {
-    return `$(rocket)${countdownSuffix}${avgSuffix}`;
+    return `$(rocket)${countdownSuffix}`;
   }
 
-  return `$(rocket) ${percentage}%${avgSuffix}`;
+  return `$(rocket) ${percentage}%`;
 }
 
 const ERROR_PATTERNS: Array<{ pattern: RegExp; tooltip: string }> = [
@@ -179,7 +177,8 @@ const ERROR_PATTERNS: Array<{ pattern: RegExp; tooltip: string }> = [
   { pattern: /no listening ports|ports? (not )?found/i, tooltip: 'No listening ports found for the Antigravity process.' },
   { pattern: /timed? ?out|timeout/i, tooltip: 'Connection timed out. The server may not be responding.' },
   { pattern: /econnrefused|connection refused/i, tooltip: 'Connection refused. The server may not be running.' },
-  { pattern: /enotfound|dns/i, tooltip: 'Could not resolve host. Check your network connection.' }
+  { pattern: /enotfound|dns/i, tooltip: 'Could not resolve host. Check your network connection.' },
+  { pattern: /not found.*installed|not found.*PATH/i, tooltip: 'A required system command was not found. Ensure your OS tools (PowerShell, ps, ss, lsof, or netstat) are installed and in your PATH.' }
 ];
 
 export function createErrorTooltip(error: Error): string {

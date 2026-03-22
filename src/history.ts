@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
-import { CONFIG_NAMESPACE } from './constants';
+import { CONFIG_NAMESPACE, HEATMAP_MAX_DAYS } from './constants';
+import { formatLocalDate } from './formatter';
+import { DailyUsageEntry } from './types';
 
 export interface QuotaHistoryEntry {
   category: string;
@@ -14,11 +16,14 @@ export interface QuotaHistoryEntry {
 export class QuotaHistory {
   private entries: QuotaHistoryEntry[] = [];
   private previousQuotas: Record<string, number> = {};
+  private dailyUsage: DailyUsageEntry[] = [];
 
-  constructor(initialEntries: QuotaHistoryEntry[] = []) {
+  constructor(initialEntries: QuotaHistoryEntry[] = [], initialDailyUsage: DailyUsageEntry[] = []) {
     this.entries = [...initialEntries];
+    this.dailyUsage = [...initialDailyUsage];
 
     this.prune();
+    this.pruneDailyUsage();
 
     const entriesByCategory: Record<string, QuotaHistoryEntry> = {};
     for (const entry of this.entries) {
@@ -40,9 +45,18 @@ export class QuotaHistory {
     return [...this.entries];
   }
 
+  getDailyUsage(): ReadonlyArray<DailyUsageEntry> {
+    return this.dailyUsage;
+  }
+
+  getRawDailyUsage(): DailyUsageEntry[] {
+    return [...this.dailyUsage];
+  }
+
   clear(): void {
     this.entries = [];
     this.previousQuotas = {};
+    this.dailyUsage = [];
   }
 
   clearCategory(category: string): void {
@@ -101,6 +115,9 @@ export class QuotaHistory {
 
       if (enableHistoryTracking) {
         newEntries.push(entry);
+        if (entry.delta < 0) {
+          this.recordDailyConsumption(category, Math.abs(entry.delta));
+        }
       }
       this.previousQuotas[category] = group.quota;
     }
@@ -110,7 +127,25 @@ export class QuotaHistory {
     }
 
     this.prune();
+    this.pruneDailyUsage();
 
     return newEntries;
+  }
+
+  private recordDailyConsumption(category: string, consumed: number): void {
+    const today = formatLocalDate(new Date());
+    const existing = this.dailyUsage.find(e => e.date === today && e.category === category);
+    if (existing) {
+      existing.consumed = Math.round((existing.consumed + consumed) * 10000) / 10000;
+    } else {
+      this.dailyUsage.push({ date: today, category, consumed: Math.round(consumed * 10000) / 10000 });
+    }
+  }
+
+  private pruneDailyUsage(): void {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - HEATMAP_MAX_DAYS);
+    const cutoffStr = formatLocalDate(cutoff);
+    this.dailyUsage = this.dailyUsage.filter(e => e.date >= cutoffStr);
   }
 }

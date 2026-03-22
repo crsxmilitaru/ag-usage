@@ -22,11 +22,10 @@ export interface UsageStatistics {
   credits?: CreditInfo;
 }
 
-export interface SessionQuotaTracker {
-  sessionStartTime: number;
-  cumulativeConsumed: Record<string, number>;
-  focusBaseline: Record<string, number> | null;
-  lastQuota: Record<string, number>;
+export interface DailyUsageEntry {
+  date: string;
+  category: string;
+  consumed: number;
 }
 
 export type ProcessId = number;
@@ -43,8 +42,8 @@ export type ResetTimeDisplayMode = 'relative' | 'absolute' | 'both';
 export type AbsoluteTimeFormat = '24h' | '12h';
 
 export interface QuotaInfo {
-  remainingFraction?: number;
-  resetTime?: string;
+  remainingFraction?: number | string;
+  resetTime?: string | number;
 }
 
 export interface ModelConfig {
