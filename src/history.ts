@@ -115,7 +115,13 @@ export class QuotaHistory {
 
       if (enableHistoryTracking) {
         newEntries.push(entry);
-        if (entry.delta < 0) {
+        if (isInitial) {
+          const consumed = 1 - group.quota;
+          const hasExistingUsage = this.dailyUsage.some(e => e.category === category);
+          if (consumed > 0 && !hasExistingUsage) {
+            this.recordDailyConsumption(category, consumed);
+          }
+        } else if (entry.delta < 0) {
           this.recordDailyConsumption(category, Math.abs(entry.delta));
         }
       }

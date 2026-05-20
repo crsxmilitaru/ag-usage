@@ -1,6 +1,6 @@
 {
   "name": "ag-usage",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "displayName": "AG Usage",
   "description": "Track usage of Antigravity AI models",
   "author": "Cristian Militaru",
@@ -95,16 +95,14 @@
           "enum": [
             "average",
             "all",
-            "geminiPro",
-            "geminiFlash",
-            "claudeGpt"
+            "gemini",
+            "other"
           ],
           "enumDescriptions": [
             "Show the average usage across all groups",
-            "Show all three groups side by side",
-            "Show only Gemini Pro usage",
-            "Show only Gemini Flash usage",
-            "Show only Claude/GPT usage"
+            "Show both groups side by side",
+            "Show only Gemini usage",
+            "Show only Other usage"
           ],
           "description": "What to display in the status bar."
         },
@@ -211,12 +209,17 @@
     "compile": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --minify --tree-shaking=true",
     "watch": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --sourcemap --watch",
     "package": "npx vsce package",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "publish:ovsx": "npx ovsx publish"
   },
   "devDependencies": {
-    "@types/node": "25.5.0",
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^25.9.1",
     "@types/vscode": "^1.107.0",
-    "esbuild": "^0.27.4",
-    "typescript": "^5.9.3"
+    "esbuild": "^0.28.0",
+    "eslint": "^10.4.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.59.4"
   }
 }

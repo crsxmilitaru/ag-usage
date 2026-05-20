@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { CONFIG_NAMESPACE, DISPLAY_MODE_TO_CATEGORY, MAX_STATUS_TEXT_LENGTH, MS_PER_DAY, MS_PER_HOUR, MS_PER_MINUTE, SHORT_NAMES } from './constants';
+import { CONFIG_NAMESPACE, DISPLAY_MODE_TO_CATEGORY, MAX_STATUS_TEXT_LENGTH, MS_PER_DAY, MS_PER_HOUR, MS_PER_MINUTE } from './constants';
 import { AbsoluteTimeFormat, QuotaGroup, ResetTimeDisplayMode, StatusBarDisplayMode } from './types';
 
 export function formatQuotaPercent(fraction: number): number {
@@ -126,14 +126,12 @@ export function formatStatusBarText(
   const countdownSuffix = getCountdownSuffix(groups, categories, showCountdown);
 
   const formatGroup = (name: string, group: QuotaGroup) => {
-    const label = SHORT_NAMES[name] ?? name;
-
     if (showCountdown && group.quota <= 0 && typeof group.resetTime === 'number') {
       const diffMs = Math.max(0, group.resetTime - Date.now());
       const shortTime = formatRelativeTime(diffMs);
-      return `${label} ~${shortTime}`;
+      return `${name} ~${shortTime}`;
     }
-    return `${label} ${formatQuotaPercent(group.quota)}%`;
+    return `${name} ${formatQuotaPercent(group.quota)}%`;
   };
 
   if (displayMode === 'all') {
@@ -157,7 +155,7 @@ export function formatStatusBarText(
     if (countdownSuffix) {
       return `$(rocket)${countdownSuffix}`;
     }
-    return `$(rocket) 0%`;
+    return '$(rocket) 0%';
   }
 
   const totalQuota = categories.reduce((sum, cat) => sum + groups[cat].quota, 0);

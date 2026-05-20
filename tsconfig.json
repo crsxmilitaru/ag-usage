@@ -5,6 +5,10 @@
 		"lib": [
 			"ES2022"
 		],
+		"types": [
+			"node",
+			"vscode"
+		],
 		"sourceMap": false,
 		"strict": true,
 		"skipLibCheck": true,

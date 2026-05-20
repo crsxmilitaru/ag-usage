@@ -39,17 +39,12 @@ export const IDE_INFO = {
 };
 
 export const SVG_CONFIG = {
-  columnWidth: 110,
-  columnPadding: 8,
-  barWidth: 76,
-  barHeight: 5
+  columnWidth: 165,
+  columnPadding: 0
 };
 
-export const COLOR_THRESHOLDS = {
-  high: { value: 65 },
-  medium: { value: 25 },
-  low: {}
-};
+export const PROGRESS_STOPS = [0, 20, 40, 60, 80, 100] as const;
+export const PROGRESS_BUCKET_BOUNDARIES = [10, 30, 50, 70, 90];
 
 export const THEME_COLORS = {
   light: {
@@ -59,7 +54,8 @@ export const THEME_COLORS = {
     cardBorder: 'rgba(107, 114, 128, 0.2)',
     success: '#059669',
     warning: '#d97706',
-    error: '#dc2626'
+    error: '#b91c1c',
+    progress: ['#7f1d1d', '#b91c1c', '#a16207', '#ca8a04', '#166534', '#15803d']
   },
   dark: {
     text: '#e5e7eb',
@@ -68,28 +64,21 @@ export const THEME_COLORS = {
     cardBorder: 'rgba(107, 114, 128, 0.2)',
     success: '#10b981',
     warning: '#f59e0b',
-    error: '#ef4444'
+    error: '#ef4444',
+    progress: ['#b91c1c', '#ef4444', '#eab308', '#fde047', '#16a34a', '#4ade80']
   }
 };
 
 export const CATEGORY_NAMES = {
-  GEMINI_PRO: 'Gemini Pro',
-  GEMINI_FLASH: 'Gemini Flash',
-  CLAUDE_GPT: 'Claude/GPT'
+  GEMINI: 'Gemini',
+  OTHER: 'Other'
 } as const;
 
-export const CATEGORY_ORDER = [CATEGORY_NAMES.GEMINI_PRO, CATEGORY_NAMES.GEMINI_FLASH, CATEGORY_NAMES.CLAUDE_GPT];
+export const CATEGORY_ORDER = [CATEGORY_NAMES.GEMINI, CATEGORY_NAMES.OTHER];
 
 export const DISPLAY_MODE_TO_CATEGORY: Record<string, string> = {
-  geminiPro: CATEGORY_NAMES.GEMINI_PRO,
-  geminiFlash: CATEGORY_NAMES.GEMINI_FLASH,
-  claudeGpt: CATEGORY_NAMES.CLAUDE_GPT
-};
-
-export const SHORT_NAMES: Record<string, string> = {
-  'Gemini Pro': 'Pro',
-  'Gemini Flash': 'Flash',
-  'Claude/GPT': 'C/G'
+  gemini: CATEGORY_NAMES.GEMINI,
+  other: CATEGORY_NAMES.OTHER
 };
 
 export const MODEL_KEYWORDS = {

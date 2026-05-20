@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
-import { MAX_PID_32BIT_SIGNED, MAX_PORT, MIN_PORT, MS_PER_DAY, MS_PER_HOUR, MS_PER_MINUTE, SERVER_STARTUP_DELAY } from './constants';
+import { CATEGORY_ORDER, MAX_PID_32BIT_SIGNED, MAX_PORT, MIN_PORT, MS_PER_DAY, MS_PER_HOUR, MS_PER_MINUTE, SERVER_STARTUP_DELAY } from './constants';
+import { QuotaGroup } from './types';
 
 export const MAX_BUFFER_SIZE = 1024 * 1024;
 
@@ -86,4 +87,21 @@ export function isNotStartedQuota(percentage: number, resetMs: number): boolean 
   const nearFiveHours = Math.abs(resetMs - 5 * MS_PER_HOUR) < toleranceMs;
   const nearSevenDays = Math.abs(resetMs - 7 * MS_PER_DAY) < toleranceMs;
   return percentage >= 100 && (nearFiveHours || nearSevenDays);
+}
+
+export function isWeeklyLimitReached(percentage: number, resetMs: number, plan: string | undefined): boolean {
+  const normalizedPlan = plan?.toLowerCase() ?? '';
+  const isPaidWeeklyPlan = normalizedPlan.includes('pro') || normalizedPlan.includes('ultra');
+  return percentage < 100 && isPaidWeeklyPlan && resetMs > 18 * MS_PER_HOUR;
+}
+
+export function isLikelyServerGlitch(groups: Record<string, QuotaGroup>): boolean {
+  const now = Date.now();
+  return CATEGORY_ORDER.every(category => {
+    const group = groups[category];
+    return group !== undefined &&
+      group.quota === 0 &&
+      typeof group.resetTime === 'number' &&
+      group.resetTime <= now;
+  });
 }

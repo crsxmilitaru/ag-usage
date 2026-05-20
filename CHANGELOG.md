@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.7.0] - 2026-05-20
+
+- Reduced the model categories to just Gemini and Other according to the new quota system
+- Added service status indicator in dashboard
+- Ignored backend server glitches to prevent false 0% quota history entries
+- Updated status bar, tooltip and dashboard quota colors to use six progress buckets
+- Added ESLint checks for TypeScript source files
+
 ## [1.6.0] - 2026-03-22
 
 - Removed session usage tracking in favor of the dashboard history panel

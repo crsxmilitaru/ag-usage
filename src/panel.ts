@@ -1,15 +1,16 @@
 import * as vscode from 'vscode';
-import { CATEGORY_ORDER, CONFIG_NAMESPACE } from './constants';
+import { CATEGORY_ORDER, CONFIG_NAMESPACE, PROGRESS_BUCKET_BOUNDARIES, PROGRESS_STOPS, THEME_COLORS } from './constants';
 import { formatFullTimestamp, formatLocalDate, formatQuotaPercent, formatRelativeTime, formatRemainingTimeSeparate, resolveLocale } from './formatter';
 import { QuotaHistory, QuotaHistoryEntry } from './history';
-import { DailyUsageEntry, QuotaGroup, UsageStatistics } from './types';
-import { isNotStartedQuota } from './utils';
+import { DailyUsageEntry, QuotaGroup, ServiceStatus, UsageStatistics } from './types';
+import { isNotStartedQuota, isWeeklyLimitReached } from './utils';
 
 export class UsageViewProvider implements vscode.WebviewViewProvider {
 	public static readonly viewType = 'ag-usage.sidebarPanel';
 	private view?: vscode.WebviewView;
 	private lastStatsData: UsageStatistics | null = null;
 	private quotaHistory: QuotaHistory | null = null;
+	private lastServiceStatus: ServiceStatus = 'disconnected';
 	private heatmapMonth: number = new Date().getMonth();
 	private heatmapYear: number = new Date().getFullYear();
 	private disposables: vscode.Disposable[] = [];
@@ -60,9 +61,10 @@ export class UsageViewProvider implements vscode.WebviewViewProvider {
 		this.updateView();
 	}
 
-	public update(statsData: UsageStatistics | null, history: QuotaHistory) {
+	public update(statsData: UsageStatistics | null, history: QuotaHistory, serviceStatus: ServiceStatus = 'disconnected') {
 		this.lastStatsData = statsData;
 		this.quotaHistory = history;
+		this.lastServiceStatus = serviceStatus;
 		if (this.view) {
 			this.updateView();
 		}
@@ -72,7 +74,8 @@ export class UsageViewProvider implements vscode.WebviewViewProvider {
 		if (!this.view || !this.quotaHistory) { return; }
 		const config = vscode.workspace.getConfiguration(CONFIG_NAMESPACE);
 		const locale = resolveLocale(config.get<string>('dateFormatLocale', 'default'));
-		this.view.webview.html = buildPanelHtml(this.lastStatsData, this.quotaHistory, this.heatmapMonth, this.heatmapYear, locale);
+		const refreshInterval = config.get<number>('refreshInterval', 60);
+		this.view.webview.html = buildPanelHtml(this.lastStatsData, this.quotaHistory, this.heatmapMonth, this.heatmapYear, locale, this.lastServiceStatus, refreshInterval);
 	}
 
 	dispose() {
@@ -90,10 +93,9 @@ function formatPercent(fraction: number): string {
 }
 
 function getBarColorClass(fraction: number): string {
-	const pct = fraction * 100;
-	if (pct >= 65) { return 'bar-success'; }
-	if (pct >= 25) { return 'bar-warning'; }
-	return 'bar-error';
+	const pct = formatQuotaPercent(fraction);
+	const idx = PROGRESS_BUCKET_BOUNDARIES.findIndex(boundary => pct < boundary);
+	return `bar-p${PROGRESS_STOPS[idx === -1 ? PROGRESS_STOPS.length - 1 : idx]}`;
 }
 
 function getDeltaClass(delta: number): string {
@@ -228,6 +230,12 @@ function buildHistorySectionHtml(category: string, categoryEntries: QuotaHistory
 		<details class="card-history-details">
 			<summary class="card-history-summary">
 				${sparklineHtml}
+				<div class="card-action-overlay">
+					<span class="expand-text">Expand</span>
+					<svg class="expand-icon" width="14" height="14" viewBox="0 0 16 16"><path fill="currentColor" d="M8 11.5L2.5 6l.7-.7L8 10.1l4.8-4.8.7.7L8 11.5z"/></svg>
+					<span class="collapse-text">Collapse</span>
+					<svg class="collapse-icon" width="14" height="14" viewBox="0 0 16 16"><path fill="currentColor" d="M8 4.5l5.5 5.5-.7.7L8 5.9l-4.8 4.8-.7-.7L8 4.5z"/></svg>
+				</div>
 			</summary>
 			<div class="history-list">
 				<div class="history-list-inner">
@@ -244,7 +252,7 @@ function buildHistorySectionHtml(category: string, categoryEntries: QuotaHistory
 		</details>`;
 }
 
-function buildCardHeaderHtml(category: string, group: QuotaGroup | undefined, locale?: string): string {
+function buildCardHeaderHtml(category: string, group: QuotaGroup | undefined, locale?: string, plan?: string): string {
 	if (!group) {
 		return `
 			<div class="quota-card-header">
@@ -257,11 +265,19 @@ function buildCardHeaderHtml(category: string, group: QuotaGroup | undefined, lo
 
 	const pct = formatQuotaPercent(group.quota);
 	const colorClass = getBarColorClass(group.quota);
+	let resetLabel = 'Resets at';
 	let resetValueHtml = 'Not started';
 	if (group.resetTime) {
 		const resetMs = group.resetTime - Date.now();
 		const isNotStarted = isNotStartedQuota(pct, resetMs);
-		if (!isNotStarted) {
+		const weeklyLimitReached = isWeeklyLimitReached(pct, resetMs, plan);
+		if (weeklyLimitReached) {
+			resetLabel = 'Weekly limit resets at';
+			const timer = formatRemainingTimeSeparate(group.resetTime);
+			resetValueHtml = timer.absoluteText
+				? `${escapeHtml(timer.relativeText)} <span class="reset-interval">(${escapeHtml(timer.absoluteText)})</span>`
+				: escapeHtml(timer.relativeText);
+		} else if (!isNotStarted) {
 			if (resetMs > 0) {
 				const timer = formatRemainingTimeSeparate(group.resetTime);
 				if (timer.absoluteText) {
@@ -292,7 +308,7 @@ function buildCardHeaderHtml(category: string, group: QuotaGroup | undefined, lo
 	}).join('')}
 				</div>
 				<div class="quota-reset">
-					<span class="reset-label">Resets at</span>
+					<span class="reset-label">${resetLabel}</span>
 					<span class="reset-value">${resetValueHtml}</span>
 				</div>
 			</div>
@@ -301,6 +317,7 @@ function buildCardHeaderHtml(category: string, group: QuotaGroup | undefined, lo
 
 function buildQuotaCards(statsData: UsageStatistics | null, history: QuotaHistory, locale?: string): string {
 	const groups = statsData?.groups || {};
+	const plan = `${statsData?.plan ?? ''} ${statsData?.planName ?? ''}`.trim();
 	const entries = history.getEntries();
 
 	const grouped = new Map<string, QuotaHistoryEntry[]>();
@@ -321,7 +338,7 @@ function buildQuotaCards(statsData: UsageStatistics | null, history: QuotaHistor
 		const group = groups[category];
 		const categoryEntries = (grouped.get(category) || []).slice().reverse();
 
-		const headerHtml = buildCardHeaderHtml(category, group, locale);
+		const headerHtml = buildCardHeaderHtml(category, group, locale, plan);
 		const historyHtml = buildHistorySectionHtml(category, categoryEntries, locale);
 
 		return `
@@ -336,6 +353,10 @@ function buildQuotaCards(statsData: UsageStatistics | null, history: QuotaHistor
 	}).join('');
 }
 
+function buildProgressVars(palette: string[]): string {
+	return PROGRESS_STOPS.map((stop, i) => `\t--progress-${stop}: ${palette[i]};`).join('\n');
+}
+
 function getPanelStyles(): string {
 	return `
 :root {
@@ -347,11 +368,16 @@ function getPanelStyles(): string {
 	--text-muted: var(--vscode-disabledForeground);
 	--table-row-hover: var(--vscode-list-hoverBackground);
 	--table-border: var(--vscode-editorGroup-border, var(--vscode-panel-border));
-	--success: #10b981;
-	--warning: #f59e0b;
-	--error: #ef4444;
+	--success: ${THEME_COLORS.dark.success};
+	--warning: ${THEME_COLORS.dark.warning};
+	--error: ${THEME_COLORS.dark.error};
+${buildProgressVars(THEME_COLORS.dark.progress)}
 	--radius-sm: 6px;
 	--radius-lg: 14px;
+}
+
+body.vscode-light {
+${buildProgressVars(THEME_COLORS.light.progress)}
 }
 
 html, body { height: 100%; }
@@ -402,6 +428,13 @@ body {
 	color: var(--text-muted);
 	text-align: center;
 	flex-shrink: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 4px;
+}
+.refresh-interval-info {
+	opacity: 0.7;
 }
 
 .empty-state {
@@ -426,7 +459,6 @@ body {
 	flex: 0 0 auto;
 	display: flex;
 	flex-direction: column;
-	overflow: hidden;
 }
 .quota-card-inner-wrap {
 	display: grid;
@@ -458,70 +490,116 @@ body {
 	color: var(--text-secondary);
 }
 .quota-value { font-size: 20px; font-weight: 700; letter-spacing: -0.5px; }
-.quota-value.bar-success { color: var(--success); }
-.quota-value.bar-warning { color: var(--warning); }
-.quota-value.bar-error { color: var(--error); }
+.quota-value.bar-p0 { color: var(--progress-0); }
+.quota-value.bar-p20 { color: var(--progress-20); }
+.quota-value.bar-p40 { color: var(--progress-40); }
+.quota-value.bar-p60 { color: var(--progress-60); }
+.quota-value.bar-p80 { color: var(--progress-80); }
+.quota-value.bar-p100 { color: var(--progress-100); }
 
 .quota-bar-track { display: flex; gap: 2px; height: 6px; margin-bottom: 14px; }
 .quota-bar-segment-bg { flex: 1; background: var(--table-border); border-radius: 3px; overflow: hidden; }
 .quota-bar-segment-fill { height: 100%; border-radius: 3px; transition: width 0.3s ease; }
-.quota-bar-segment-fill.bar-success { background: var(--success); }
-.quota-bar-segment-fill.bar-warning { background: var(--warning); }
-.quota-bar-segment-fill.bar-error { background: var(--error); }
+.quota-bar-segment-fill.bar-p0 { background: var(--progress-0); }
+.quota-bar-segment-fill.bar-p20 { background: var(--progress-20); }
+.quota-bar-segment-fill.bar-p40 { background: var(--progress-40); }
+.quota-bar-segment-fill.bar-p60 { background: var(--progress-60); }
+.quota-bar-segment-fill.bar-p80 { background: var(--progress-80); }
+.quota-bar-segment-fill.bar-p100 { background: var(--progress-100); }
 
 .quota-reset { display: flex; justify-content: space-between; align-items: center; }
 .reset-label { font-size: 11px; color: var(--text-muted); }
 .reset-value { font-size: 11px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 .reset-interval { color: var(--text-muted); opacity: 0.8; }
 
+.service-status-indicator {
+	font-size: 14px;
+	line-height: 1;
+}
+.service-status-indicator.service-ok { color: var(--success); }
+.service-status-indicator.service-degraded { color: var(--warning); }
+.service-status-indicator.service-error { color: var(--error); }
+
 .top-row {
 	display: flex;
-	flex-direction: column;
-	gap: 12px;
+	flex-direction: row;
+	gap: 8px;
 	flex-shrink: 0;
+	flex-wrap: wrap;
 }
 .top-row .quota-card {
-	padding: 12px 16px;
+	padding: 10px 12px;
+	flex: 1 1 100px;
+	min-width: 100px;
+	position: relative;
+	overflow: hidden;
+	transition: background 0.15s ease, border-color 0.15s ease;
+	text-decoration: none;
+	color: inherit;
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	justify-content: center;
 }
-.top-row .quota-card-header { margin-bottom: 0; }
+.top-row .status-card {
+	gap: 8px;
+}
+.status-label {
+	font-size: 10px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.5px;
+	color: var(--text-secondary);
+	line-height: 1.1;
+	max-width: 70px;
+}
+.top-row .quota-card.clickable-card {
+	cursor: pointer;
+}
+.top-row .quota-card.clickable-card:hover {
+	background: var(--table-row-hover);
+	border-color: var(--vscode-focusBorder);
+}
+.card-action-overlay {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	font-size: 10px;
+	font-weight: 600;
+	text-transform: uppercase;
+	color: var(--text-secondary);
+	opacity: 0;
+	transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+	pointer-events: none;
+}
+.top-row .quota-card.clickable-card:hover .card-action-overlay,
+.card-history-summary:hover .card-action-overlay {
+	opacity: 1;
+	color: var(--text-primary);
+	background: color-mix(in srgb, var(--vscode-editorWidget-background) 70%, transparent);
+	backdrop-filter: blur(8px);
+}
+.card-history-summary:hover .card-action-overlay {
+	backdrop-filter: blur(4px);
+}
 .plan-value {
-	font-size: 13px;
+	font-size: 12px;
 	font-weight: 600;
 	letter-spacing: 0.5px;
 	color: var(--text-primary);
 	text-transform: uppercase;
+	line-height: 1.1;
+	text-align: center;
 }
 
 .credits-info { display: flex; align-items: center; gap: 8px; }
-.credits-label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-secondary); }
+.credits-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); line-height: 1.1; max-width: 60px; }
 .credits-amount { font-size: 18px; font-weight: 700; line-height: 1; }
 .credits-ok { color: var(--success); }
 .credits-low { color: var(--error); }
-.button {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	height: 24px;
-	padding: 0 8px;
-	background: var(--vscode-button-background);
-	color: var(--vscode-button-foreground);
-	border: none;
-	border-radius: var(--radius-sm);
-	text-decoration: none;
-	font-family: inherit;
-	font-size: 11px;
-	line-height: 1;
-	font-weight: 600;
-	cursor: pointer;
-	text-transform: uppercase;
-}
-.button:hover { background: var(--vscode-button-hoverBackground); }
-.button-secondary {
-	background: var(--vscode-button-secondaryBackground);
-	color: var(--vscode-button-secondaryForeground);
-}
-.button-secondary:hover { background: var(--vscode-button-secondaryHoverBackground); }
-
 .card-history-details { margin-top: 6px; position: relative; }
 
 .card-history-summary {
@@ -529,8 +607,18 @@ body {
 	user-select: none;
 	list-style: none;
 	flex-shrink: 0;
-	padding-top: 4px;
+	margin-top: 12px;
 	border-radius: var(--radius-sm);
+	position: relative;
+	overflow: hidden;
+}
+.card-history-details[open] .card-history-summary .expand-text,
+.card-history-details[open] .card-history-summary .expand-icon {
+	display: none;
+}
+.card-history-details:not([open]) .card-history-summary .collapse-text,
+.card-history-details:not([open]) .card-history-summary .collapse-icon {
+	display: none;
 }
 .card-history-summary:focus-visible {
 	outline: 1px solid var(--vscode-focusBorder);
@@ -557,7 +645,7 @@ body {
 }
 .history-clear-row:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
 
-.history-chart { margin-top: 8px; background: var(--panel-bg); border-radius: var(--radius-sm); padding: 4px; transition: opacity 0.15s ease; opacity: 0.7; }
+.history-chart { background: var(--panel-bg); border-radius: var(--radius-sm); padding: 4px; transition: opacity 0.15s ease; opacity: 0.7; }
 .history-chart:hover { opacity: 1; }
 .history-chart svg { display: block; width: 100%; height: auto; }
 .history-chart circle { transition: r 0.15s ease; cursor: default; }
@@ -593,7 +681,6 @@ body {
 	overflow-y: auto;
 	overflow-x: hidden;
 }
-
 
 .history-row {
 	display: flex;
@@ -755,23 +842,38 @@ body {
 `;
 }
 
-function buildTopRow(statsData: UsageStatistics | null): string {
-	if (!statsData) { return ''; }
+function buildTopRow(statsData: UsageStatistics | null, serviceStatus: ServiceStatus = 'disconnected'): string {
+	const planDisplay = statsData?.planName ?? statsData?.plan ?? '';
+	const credits = statsData?.credits;
 
-	const planDisplay = statsData.planName ?? statsData.plan ?? '';
-	const credits = statsData.credits;
+	const statusConfigs: Record<ServiceStatus, { label: string; cssClass: string }> = {
+		connected: { label: 'Service Online', cssClass: 'service-ok' },
+		degraded: { label: 'Degraded', cssClass: 'service-degraded' },
+		disconnected: { label: 'No Connection', cssClass: 'service-error' },
+		glitch: { label: 'Server Glitch', cssClass: 'service-degraded' }
+	};
+	const cfg = statusConfigs[serviceStatus];
 
-	if (!planDisplay && !credits) { return ''; }
+	const statusCard = `
+		<a class="quota-card status-card clickable-card" href="https://statusgator.com/services/google-antigravity">
+			<div class="service-status-indicator ${cfg.cssClass}">●</div>
+			<div class="status-label">${cfg.label}</div>
+			<div class="card-action-overlay">
+				<span>Status</span>
+				<svg width="14" height="14" viewBox="0 0 16 16"><path fill="currentColor" d="M8.2 3.2l5.4 5.4-5.4 5.4-.7-.7 4.2-4.2H2v-1h9.7L7.5 3.9l.7-.7z"/></svg>
+			</div>
+		</a>`;
 
 	let planCard = '';
 	if (planDisplay) {
 		planCard = `
-			<div class="quota-card">
-				<div class="quota-card-header">
-					<div class="plan-value">${escapeHtml(planDisplay)}</div>
-					<a class="button button-secondary" href="https://antigravity.google/docs/plans">Plans info</a>
+			<a class="quota-card clickable-card" href="https://antigravity.google/docs/plans">
+				<div class="plan-value">${escapeHtml(planDisplay)}</div>
+				<div class="card-action-overlay">
+					<span>Plans info</span>
+					<svg width="14" height="14" viewBox="0 0 16 16"><path fill="currentColor" d="M8.2 3.2l5.4 5.4-5.4 5.4-.7-.7 4.2-4.2H2v-1h9.7L7.5 3.9l.7-.7z"/></svg>
 				</div>
-			</div>`;
+			</a>`;
 	}
 
 	let creditsCard = '';
@@ -779,18 +881,19 @@ function buildTopRow(statsData: UsageStatistics | null): string {
 		const isLow = credits.creditAmount <= credits.minimumCreditAmountForUsage;
 		const colorClass = isLow ? 'credits-low' : 'credits-ok';
 		creditsCard = `
-			<div class="quota-card">
-				<div class="quota-card-header">
-					<div class="credits-info">
-						<span class="credits-label">Extra Credits</span>
-						<span class="credits-amount ${colorClass}">${credits.creditAmount.toLocaleString()}</span>
-					</div>
-					<button class="button" onclick="openAntigravitySettings()">Models</button>
+			<div class="quota-card clickable-card" onclick="openAntigravitySettings()">
+				<div class="credits-info">
+					<span class="credits-label">Extra Credits</span>
+					<span class="credits-amount ${colorClass}">${credits.creditAmount.toLocaleString()}</span>
+				</div>
+				<div class="card-action-overlay">
+					<span>Models</span>
+					<svg width="14" height="14" viewBox="0 0 16 16"><path fill="currentColor" d="M8.2 3.2l5.4 5.4-5.4 5.4-.7-.7 4.2-4.2H2v-1h9.7L7.5 3.9l.7-.7z"/></svg>
 				</div>
 			</div>`;
 	}
 
-	return `<div class="top-row">${planCard}${creditsCard}</div>`;
+	return `<div class="top-row">${statusCard}${planCard}${creditsCard}</div>`;
 }
 
 function getHeatmapLevel(consumed: number, maxConsumed: number): number {
@@ -903,8 +1006,8 @@ function buildHeatmapSection(dailyUsage: ReadonlyArray<DailyUsageEntry>, targetM
 		</div>`;
 }
 
-function buildPanelHtml(statsData: UsageStatistics | null, history: QuotaHistory, heatmapMonth: number, heatmapYear: number, locale?: string): string {
-	const topRow = buildTopRow(statsData);
+function buildPanelHtml(statsData: UsageStatistics | null, history: QuotaHistory, heatmapMonth: number, heatmapYear: number, locale?: string, serviceStatus: ServiceStatus = 'disconnected', refreshInterval: number = 60): string {
+	const topRow = buildTopRow(statsData, serviceStatus);
 	const heatmap = buildHeatmapSection(history.getDailyUsage(), heatmapMonth, heatmapYear, locale);
 	const quotaCards = buildQuotaCards(statsData, history, locale);
 
@@ -924,7 +1027,10 @@ ${getPanelStyles()}
 		<div class="quota-grid">${quotaCards}</div>
 	</div>
 	${heatmap}
-	<div class="panel-footer" id="lastUpdated">Updated just now</div>
+	<div class="panel-footer">
+		<span id="lastUpdated">Updated just now</span>
+		<span class="refresh-interval-info">• ${refreshInterval > 0 ? `Auto: ${refreshInterval}s` : 'Auto: Off'}</span>
+	</div>
 <script>
 const vscode = acquireVsCodeApi();
 const updatedAt = ${Date.now()};

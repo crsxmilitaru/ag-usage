@@ -35,11 +35,13 @@ export interface ProcessInfo {
   cmd: string;
 }
 
-export type StatusBarDisplayMode = 'average' | 'all' | 'geminiPro' | 'geminiFlash' | 'claudeGpt';
+export type StatusBarDisplayMode = 'average' | 'all' | 'gemini' | 'other';
 
 export type ResetTimeDisplayMode = 'relative' | 'absolute' | 'both';
 
 export type AbsoluteTimeFormat = '24h' | '12h';
+
+export type ServiceStatus = 'connected' | 'degraded' | 'disconnected' | 'glitch';
 
 export interface QuotaInfo {
   remainingFraction?: number | string;

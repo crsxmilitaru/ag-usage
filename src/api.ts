@@ -222,9 +222,10 @@ export function makeRequest<T>(port: number, csrfToken: string, path: string, bo
 
 function determineCategory(label: string): string {
   const lowerLabel = label.toLowerCase();
-  if (lowerLabel.includes(MODEL_KEYWORDS.flash)) { return CATEGORY_NAMES.GEMINI_FLASH; }
-  if (lowerLabel.includes(MODEL_KEYWORDS.gemini)) { return CATEGORY_NAMES.GEMINI_PRO; }
-  return CATEGORY_NAMES.CLAUDE_GPT;
+  if (lowerLabel.includes(MODEL_KEYWORDS.gemini) || lowerLabel.includes(MODEL_KEYWORDS.flash)) {
+    return CATEGORY_NAMES.GEMINI;
+  }
+  return CATEGORY_NAMES.OTHER;
 }
 
 export async function fetchStats(port: number, csrfToken: string): Promise<UsageStatistics> {

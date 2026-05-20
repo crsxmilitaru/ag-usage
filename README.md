@@ -31,9 +31,8 @@
 - **Auto-refresh**: Usage data is automatically updated every 60 seconds by default, but can be configured.
 
 - **Detailed tooltip**: Hover over the status bar item to see a detailed breakdown and visual progress bars for model categories (as they are calculated by Antigravity):
-  - **Gemini Pro** - Gemini 3.1 Pro (High) and Gemini 3.1 Pro (Low)
-  - **Gemini Flash** - Gemini 3 Flash
-  - **Claude/GPT** - Claude Sonnet 4.6 (Thinking), Claude Opus 4.6 (Thinking) and GPT-OSS 120B (Medium)
+  - **Gemini** - Gemini Pro and Gemini Flash models
+  - **Other** - Claude and GPT models
 
 - **Quota reset timer**: Each model category displays the time remaining until quota resets, highlighted in green when less than 10 minutes remains. Time is displayed only when the Antigravity quota reset timer is triggered (first use of the AI model after a 100% usage).
 
@@ -52,13 +51,12 @@
 
 - `ag-usage.statusBarDisplay`: Control what information is shown in the status bar. Options:
   - `average` - Shows the average usage across all groups
-  - `all` (default) - Shows all three groups side by side (e.g., `Pro: 80% | Flash: 90% | C/G: 50%`)
-  - `geminiPro` - Shows only Gemini Pro usage
-  - `geminiFlash` - Shows only Gemini Flash usage
-  - `claudeGpt` - Shows only Claude/GPT usage
+  - `all` (default) - Shows both groups side by side (e.g., `Gemini: 80% | Other: 50%`)
+  - `gemini` - Shows only Gemini usage
+  - `other` - Shows only Other usage
 
 - `ag-usage.statusBarAlignment`: Control the alignment of the status bar item. Options: `Left`, `Right` (default).
--
+
 - `ag-usage.statusBarPriority`: Control the priority of the status bar item. Higher values move the item further to the left (for Right alignment). Default is `100`.
 
 - `ag-usage.statusBarCountdown`: Show time remaining until next reset in the status bar when quota reaches 0%. Default is `true`.

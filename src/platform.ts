@@ -31,7 +31,7 @@ class WindowsPlatform implements PlatformStrategy {
         ]);
         return this.parseWmicOutput(stdout);
       } catch (wmicError) {
-        throw new Error(`Failed to query Windows processes. Neither 'powershell' nor 'wmic' are available: ${getErrorMessage(wmicError)}`);
+        throw new Error(`Failed to query Windows processes. Neither 'powershell' nor 'wmic' are available: ${getErrorMessage(wmicError)}`, { cause: wmicError });
       }
     }
 
@@ -70,7 +70,7 @@ class WindowsPlatform implements PlatformStrategy {
         stdout = await executeCommand('netstat', ['-ano', '-p', 'tcp']);
         return this.parseNetstatOutput(stdout, pid);
       } catch (error) {
-        throw new Error(`Failed to query Windows ports. Neither 'powershell' nor 'netstat' are available: ${getErrorMessage(error)}`);
+        throw new Error(`Failed to query Windows ports. Neither 'powershell' nor 'netstat' are available: ${getErrorMessage(error)}`, { cause: error });
       }
     }
 
@@ -85,7 +85,7 @@ class WindowsPlatform implements PlatformStrategy {
   }
 
   private escapeLikePattern(value: string): string {
-    return value.replace(/[%_\[\]]/g, '[$&]').replace(/'/g, "''");
+    return value.replace(/[%_[\]]/g, '[$&]').replace(/'/g, "''");
   }
 
   private parseWmicOutput(stdout: string): ProcessInfo[] {
@@ -141,7 +141,7 @@ class UnixPlatform implements PlatformStrategy {
     try {
       stdout = await executeCommand('ps', ['-eo', 'pid,args']);
     } catch (error) {
-      throw new Error(`Failed to query Unix processes: ${getErrorMessage(error)}`);
+      throw new Error(`Failed to query Unix processes: ${getErrorMessage(error)}`, { cause: error });
     }
 
     const currentUserUid = os.platform() === 'linux' ? os.userInfo().uid : -1;
@@ -177,7 +177,7 @@ class UnixPlatform implements PlatformStrategy {
         const stdout = await executeCommand('lsof', ['-iTCP', '-sTCP:LISTEN', '-n', '-P', '-p', String(pid)]);
         return this.parseUnixLsofOutput(stdout);
       } catch (error) {
-        throw new Error(`Failed to query Unix ports calling lsof: ${getErrorMessage(error)}`);
+        throw new Error(`Failed to query Unix ports calling lsof: ${getErrorMessage(error)}`, { cause: error });
       }
     }
 

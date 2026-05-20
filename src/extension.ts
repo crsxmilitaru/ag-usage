@@ -2,7 +2,6 @@ import * as vscode from 'vscode';
 import { extractCsrfToken, fetchStats, findAntigravityProcess, findListeningPorts, findValidPort } from './api';
 import {
 	CACHE_TTL_MS,
-	CATEGORY_ORDER,
 	CONFIG_NAMESPACE,
 	DEFAULT_REFRESH_INTERVAL,
 	EXPORT_HISTORY_COMMAND,
@@ -23,8 +22,8 @@ import { QuotaHistory, QuotaHistoryEntry } from './history';
 import { NotificationManager } from './notifications';
 import { UsageViewProvider } from './panel';
 import { renderStats } from './renderer';
-import { CachedConnection, UsageStatistics } from './types';
-import { getErrorMessage } from './utils';
+import { CachedConnection, ServiceStatus, UsageStatistics } from './types';
+import { getErrorMessage, isLikelyServerGlitch } from './utils';
 
 async function loadMockUsageStatistics(): Promise<UsageStatistics> {
 	const fs = await import('fs');
@@ -57,6 +56,7 @@ class ExtensionState implements vscode.Disposable {
 	isActive = false;
 	notificationManager = new NotificationManager();
 	refreshLoopGeneration = 0;
+	serviceStatus: ServiceStatus = 'disconnected';
 	quotaHistory: QuotaHistory;
 	usageViewProvider = new UsageViewProvider();
 	readonly context: vscode.ExtensionContext;
@@ -115,6 +115,7 @@ class ExtensionState implements vscode.Disposable {
 		this.refreshPromise = null;
 		this.lastRefreshSucceeded = false;
 		this.consecutiveFailures = 0;
+		this.serviceStatus = 'disconnected';
 		this.notificationManager.clear();
 		this.quotaHistory.clear();
 	}
@@ -221,7 +222,7 @@ export function activate(context: vscode.ExtensionContext) {
 				state.context.globalState.update('quotaHistory', state.quotaHistory.getRawEntries());
 				state.context.globalState.update('quotaDailyUsage', state.quotaHistory.getRawDailyUsage());
 				if (state.lastStatsData) {
-					state.usageViewProvider.update(state.lastStatsData, state.quotaHistory);
+					state.usageViewProvider.update(state.lastStatsData, state.quotaHistory, state.serviceStatus);
 				}
 			}
 
@@ -357,17 +358,31 @@ async function refresh(showRefreshing: boolean) {
 
 	const applyStatsUpdate = (statsData: UsageStatistics, logMessage: string) => {
 		const previousStatsData = currentState.lastStatsData;
-		currentState.lastStatsData = statsData;
+		const serverGlitch = isLikelyServerGlitch(statsData.groups);
+
 		currentState.lastRefreshSucceeded = true;
-		currentState.quotaHistory.recordSnapshot(statsData.groups);
-		const result = renderStats(statsData);
+
+		if (serverGlitch) {
+			currentState.serviceStatus = 'glitch';
+			currentState.log('Server reported all groups at 0% with elapsed reset time — treating as a server glitch; skipping history record');
+		} else {
+			currentState.lastStatsData = statsData;
+			currentState.serviceStatus = Object.keys(statsData.groups).length === 0 ? 'degraded' : 'connected';
+			currentState.quotaHistory.recordSnapshot(statsData.groups);
+		}
+
+		const dataToDisplay = serverGlitch && previousStatsData ? previousStatsData : statsData;
+		const result = renderStats(dataToDisplay);
 		currentState.statusBarItem.text = result.text;
 		currentState.statusBarItem.tooltip = result.tooltip;
 		currentState.statusBarItem.color = undefined;
 		currentState.statusBarItem.backgroundColor = undefined;
-		currentState.notificationManager.checkQuotaNotifications(statsData, previousStatsData);
 
-		currentState.usageViewProvider.update(statsData, currentState.quotaHistory);
+		if (!serverGlitch) {
+			currentState.notificationManager.checkQuotaNotifications(statsData, previousStatsData);
+		}
+
+		currentState.usageViewProvider.update(dataToDisplay, currentState.quotaHistory, currentState.serviceStatus);
 		currentState.context.globalState.update('quotaHistory', currentState.quotaHistory.getRawEntries());
 		currentState.context.globalState.update('quotaDailyUsage', currentState.quotaHistory.getRawDailyUsage());
 
@@ -434,6 +449,7 @@ async function refresh(showRefreshing: boolean) {
 		} catch (error) {
 			if (!currentState.isActive) { return; }
 			currentState.lastRefreshSucceeded = false;
+			currentState.serviceStatus = 'disconnected';
 			await minDelay;
 			const err = error instanceof Error ? error : new Error(String(error));
 			currentState.log('Refresh failed', err);
@@ -441,6 +457,7 @@ async function refresh(showRefreshing: boolean) {
 			currentState.statusBarItem.tooltip = createErrorTooltip(err);
 			currentState.statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
 			currentState.statusBarItem.color = new vscode.ThemeColor('statusBarItem.warningForeground');
+			currentState.usageViewProvider.update(currentState.lastStatsData, currentState.quotaHistory, currentState.serviceStatus);
 		}
 	};
 
