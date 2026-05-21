@@ -175,7 +175,7 @@ function buildCategorySvg(options: CategorySvgOptions): string {
 		svg += `
 		<text x="${contentX}" y="${bodyY + 6}" fill="${barColor}" ${textStyleStart} font-size="${FONT_SIZE.xxl}" font-weight="800">${percentage}%</text>`;
 
-		if (typeof group.resetTime === 'number') {
+		if (!isNotStartedQuota(percentage, resetMs) && typeof group.resetTime === 'number') {
 			const timer = formatRemainingTimeSeparate(group.resetTime);
 			const textColor = weeklyLimitReached ? colors.error : colors.text;
 			svg += `
@@ -185,9 +185,6 @@ function buildCategorySvg(options: CategorySvgOptions): string {
 				svg += `
 		<text x="${contentXEnd}" y="${bodyY + 13}" fill="${textColor}" fill-opacity="${OPACITY.medium}" ${textStyleEnd} font-size="${FONT_SIZE.xs}" font-weight="500">${escapeXml(timer.absoluteText)}</text>`;
 			}
-		} else if (isNotStartedQuota(percentage, resetMs)) {
-			svg += `
-		<text x="${contentXEnd}" y="${bodyY}" fill="${colors.text}" fill-opacity="${OPACITY.medium}" ${textStyleEnd} font-size="${FONT_SIZE.sm}" font-weight="500">Not started</text>`;
 		}
 	}
 

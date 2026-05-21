@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.7.1] - 2026-05-21
+
+- Fixed "Not started" detection for reset time display
+
 ## [1.7.0] - 2026-05-20
 
 - Reduced the model categories to just Gemini and Other according to the new quota system
