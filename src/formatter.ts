@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { CONFIG_NAMESPACE, DISPLAY_MODE_TO_CATEGORY, MAX_STATUS_TEXT_LENGTH, MS_PER_DAY, MS_PER_HOUR, MS_PER_MINUTE } from './constants';
-import { AbsoluteTimeFormat, QuotaGroup, ResetTimeDisplayMode, StatusBarDisplayMode } from './types';
+import { AbsoluteTimeFormat, QuotaGroup, ResetTimeDisplayMode, StatusBarDisplayMode, StatusBarLimitDisplayMode } from './types';
 
 export function formatQuotaPercent(fraction: number): number {
   return Math.round(Math.max(0, Math.min(1, fraction)) * 100);
@@ -116,6 +116,15 @@ function getCountdownSuffix(groups: Record<string, QuotaGroup>, categories: stri
   return ` ~${text}`;
 }
 
+function getQuotaBucket(group: QuotaGroup, window: 'weekly' | '5h'): NonNullable<QuotaGroup['buckets']>[number] | undefined {
+  return group.buckets?.find(bucket => bucket.window.toLowerCase() === window);
+}
+
+function formatBucketCountdown(resetTime: number): string {
+  const diffMs = Math.max(0, resetTime - Date.now());
+  return `~${formatRelativeTime(diffMs)}`;
+}
+
 export function formatStatusBarText(
   groups: Record<string, QuotaGroup>,
   categories: string[]
@@ -126,6 +135,30 @@ export function formatStatusBarText(
   const countdownSuffix = getCountdownSuffix(groups, categories, showCountdown);
 
   const formatGroup = (name: string, group: QuotaGroup) => {
+    const limitDisplay = config.get<StatusBarLimitDisplayMode>('statusBarLimitDisplay', 'both');
+    const weekly = getQuotaBucket(group, 'weekly');
+    const fiveHour = getQuotaBucket(group, '5h');
+    if (weekly || fiveHour) {
+      if (showCountdown && weekly?.quota === 0 && typeof weekly.resetTime === 'number') {
+        return `${name} ${formatBucketCountdown(weekly.resetTime)}`;
+      }
+      if (showCountdown && fiveHour?.quota === 0 && typeof fiveHour.resetTime === 'number') {
+        const weeklySuffix = limitDisplay === 'both' && weekly
+          ? ` (${formatQuotaPercent(weekly.quota)}%)`
+          : '';
+        return `${name} ${formatBucketCountdown(fiveHour.resetTime)}${weeklySuffix}`;
+      }
+      if (limitDisplay === 'both' && weekly && fiveHour) {
+        return `${name} ${formatQuotaPercent(fiveHour.quota)}% (${formatQuotaPercent(weekly.quota)}%)`;
+      }
+      if (fiveHour) {
+        return `${name} ${formatQuotaPercent(fiveHour.quota)}%`;
+      }
+      if (weekly) {
+        return `${name} ${formatQuotaPercent(weekly.quota)}%`;
+      }
+    }
+
     if (showCountdown && group.quota <= 0 && typeof group.resetTime === 'number') {
       const diffMs = Math.max(0, group.resetTime - Date.now());
       const shortTime = formatRelativeTime(diffMs);

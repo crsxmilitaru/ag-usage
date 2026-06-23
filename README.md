@@ -55,6 +55,10 @@
   - `gemini` - Shows only Gemini usage
   - `other` - Shows only Other usage
 
+- `ag-usage.statusBarLimitDisplay`: Control how to display the quota limits in the status bar. Options:
+  - `only5h` - Shows only the 5-hour quota (e.g., `Gemini 77%`)
+  - `both` (default) - Shows both 5-hour and weekly quotas (e.g., `Gemini 21% (99%)`)
+
 - `ag-usage.statusBarAlignment`: Control the alignment of the status bar item. Options: `Left`, `Right` (default).
 
 - `ag-usage.statusBarPriority`: Control the priority of the status bar item. Higher values move the item further to the left (for Right alignment). Default is `100`.

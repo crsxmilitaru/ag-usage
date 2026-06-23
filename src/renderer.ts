@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
-import { CATEGORY_ORDER, EXTENSION_TITLE, OPEN_PANEL_COMMAND, PROGRESS_BUCKET_BOUNDARIES, SETTINGS_COMMAND, SVG_CONFIG, THEME_COLORS } from './constants';
+import { CATEGORY_ORDER, EXTENSION_TITLE, OPEN_PANEL_COMMAND, SETTINGS_COMMAND, SVG_CONFIG, THEME_COLORS } from './constants';
 import { formatQuotaPercent, formatRemainingTimeSeparate, formatStatusBarText } from './formatter';
 import { QuotaGroup, UsageStatistics } from './types';
-import { isNotStartedQuota, isWeeklyLimitReached } from './utils';
+import { escapeHtml, getProgressStopIndex, isNotStartedQuota, isWeeklyLimitReached, sortQuotaBuckets } from './utils';
 
 const LAYOUT = {
 	cardPadding: 6,
@@ -12,15 +12,15 @@ const LAYOUT = {
 };
 
 const CARD_METRICS = {
-	cardHeight: 84,
-	svgHeight: 100,
+	cardHeight: 148,
+	svgHeight: 164,
 	paddingLeft: 12,
 	paddingRight: 12,
 	headerY: 22,
-	bodyY: 46,
-	barY: 74,
-	barHeight: 4,
-	barRadius: 2,
+	bodyY: 72,
+	barY: 120,
+	barHeight: 5,
+	barRadius: 2.5,
 	segments: 5,
 	segmentGap: 3
 };
@@ -38,14 +38,6 @@ const OPACITY = {
 	low: 0.4,
 	medium: 0.6,
 	high: 0.8
-};
-
-const XML_ESCAPES: Record<string, string> = {
-	'<': '&lt;',
-	'>': '&gt;',
-	'&': '&amp;',
-	'"': '&quot;',
-	"'": '&apos;'
 };
 
 const MAX_GROUPS_VALIDATION = 100;
@@ -76,12 +68,7 @@ function getThemeColors(): ThemeColors {
 }
 
 function getBarColor(percentage: number, colors: ThemeColors): string {
-	const idx = PROGRESS_BUCKET_BOUNDARIES.findIndex(b => percentage < b);
-	return colors.progress[idx === -1 ? colors.progress.length - 1 : idx];
-}
-
-function escapeXml(text: string): string {
-	return text.replace(/[<>&"']/g, char => XML_ESCAPES[char] ?? char);
+	return colors.progress[getProgressStopIndex(percentage)];
 }
 
 function isValidQuotaGroup(value: unknown): value is QuotaGroup {
@@ -96,23 +83,20 @@ function buildProgressBarSvg(
 	barW: number,
 	percentage: number,
 	barColor: string,
-	colors: ThemeColors
+	colors: ThemeColors,
+	customBarY?: number,
+	customBarHeight?: number
 ): string {
-	const { barY, barHeight, barRadius, segments, segmentGap } = CARD_METRICS;
-	const segmentWidth = (barW - (segmentGap * (segments - 1))) / segments;
+	const { barY: defaultBarY, barHeight: defaultBarHeight, barRadius } = CARD_METRICS;
+	const barY = customBarY ?? defaultBarY;
+	const barHeight = customBarHeight ?? defaultBarHeight;
 	const elements: string[] = [];
 
-	for (let i = 0; i < segments; i++) {
-		const segX = (barX + i * (segmentWidth + segmentGap)).toFixed(1);
-		const sw = segmentWidth.toFixed(1);
-		elements.push(`<rect x="${segX}" y="${barY}" rx="${barRadius}" width="${sw}" height="${barHeight}" fill="${colors.barBackground}"/>`);
+	elements.push(`<rect x="${barX.toFixed(1)}" y="${barY.toFixed(1)}" rx="${barRadius}" width="${barW.toFixed(1)}" height="${barHeight}" fill="${colors.barBackground}"/>`);
 
-		const startPct = i * 20;
-		const fillPct = Math.max(0, Math.min(100, (percentage - startPct) * 5));
-		if (fillPct > 0) {
-			const fillWidth = ((fillPct / 100) * segmentWidth).toFixed(1);
-			elements.push(`<rect x="${segX}" y="${barY}" rx="${barRadius}" width="${fillWidth}" height="${barHeight}" fill="${barColor}"/>`);
-		}
+	if (percentage > 0) {
+		const fillWidth = ((percentage / 100) * barW).toFixed(1);
+		elements.push(`<rect x="${barX.toFixed(1)}" y="${barY.toFixed(1)}" rx="${barRadius}" width="${fillWidth}" height="${barHeight}" fill="${barColor}"/>`);
 	}
 
 	return elements.join('\n\t\t');
@@ -134,7 +118,7 @@ function buildCategorySvg(options: CategorySvgOptions): string {
 
 	const percentage = formatQuotaPercent(group.quota);
 	const barColor = getBarColor(percentage, colors);
-	const label = escapeXml(category).toUpperCase();
+	const label = escapeHtml(category).toUpperCase();
 	const resetMs = group.resetTime ? group.resetTime - Date.now() : 0;
 	const weeklyLimitReached = typeof group.resetTime === 'number' && isWeeklyLimitReached(percentage, resetMs, plan);
 
@@ -148,6 +132,67 @@ function buildCategorySvg(options: CategorySvgOptions): string {
 		<rect x="${cardX}" y="${cardPadding}" rx="${cardRadius}" width="${cardW}" height="${cardHeight}" fill="${colors.cardFill}" stroke="${colors.cardBorder}" stroke-width="1"/>
 		<text x="${contentX}" y="${headerY}" fill="${colors.text}" fill-opacity="${OPACITY.medium}" ${textStyleStart} font-size="${FONT_SIZE.xs}" font-weight="700" letter-spacing="1px">${label}</text>`;
 
+	if (group.buckets?.length) {
+		const sortedBuckets = sortQuotaBuckets(group.buckets);
+
+		sortedBuckets.slice(0, 2).forEach((bucket, index) => {
+			const bucketPercentage = formatQuotaPercent(bucket.quota);
+			const bucketColor = getBarColor(bucketPercentage, colors);
+			const bucketLabel = bucket.window.toLowerCase() === 'weekly' ? 'Weekly' : bucket.window.toLowerCase() === '5h' ? '5h' : bucket.displayName;
+			
+			const isWeekly = bucketLabel.toLowerCase() === 'weekly';
+			
+			const boxX = cardX + 6;
+			const boxW = cardW - 12;
+			const boxY = 32 + index * 62;
+			const boxH = 48;
+			
+			const labelY = boxY + 13;
+			const percentY = boxY + 28;
+			const barY = boxY + 39;
+			const barHeight = 5;
+			
+			const itemX = isWeekly ? contentX : contentX + 4;
+			const itemXEnd = isWeekly ? contentXEnd : contentXEnd - 4;
+			const itemW = isWeekly ? contentW : contentW - 8;
+			
+			if (!isWeekly) {
+				svg += `
+		<rect x="${boxX}" y="${boxY}" rx="6" width="${boxW}" height="${boxH}" fill="${colors.text}" fill-opacity="0.04" stroke="${colors.cardBorder}" stroke-width="0.5"/>`;
+			}
+			
+			svg += `
+		<text x="${itemX}" y="${percentY}" fill="${bucketColor}" ${textStyleStart} font-size="${FONT_SIZE.xl}" font-weight="800">${bucketPercentage}%</text>`;
+			
+			svg += `
+		<text x="${itemXEnd}" y="${labelY}" fill="${colors.text}" fill-opacity="${OPACITY.high}" ${textStyleEnd} font-size="${FONT_SIZE.sm}" font-weight="700">${escapeHtml(bucketLabel)}</text>`;
+			
+			if (bucket.resetTime) {
+				const bucketResetMs = bucket.resetTime - Date.now();
+				let resetSvg: string;
+				if (isNotStartedQuota(bucketPercentage, bucketResetMs)) {
+					resetSvg = `<tspan fill-opacity="${OPACITY.medium}">Not started</tspan>`;
+				} else {
+					const timer = formatRemainingTimeSeparate(bucket.resetTime);
+					const relText = escapeHtml(timer.relativeText);
+					const absText = timer.absoluteText ? escapeHtml(timer.absoluteText) : null;
+					
+					if (absText) {
+						resetSvg = `<tspan fill-opacity="${OPACITY.high}">${relText}</tspan><tspan fill-opacity="${OPACITY.low}"> (${absText})</tspan>`;
+					} else {
+						resetSvg = `<tspan fill-opacity="${OPACITY.high}">${relText}</tspan>`;
+					}
+				}
+				
+				svg += `
+		<text x="${itemXEnd}" y="${percentY}" fill="${colors.text}" ${textStyleEnd} font-size="${FONT_SIZE.xs}" font-weight="500">${resetSvg}</text>`;
+			}
+			
+			svg += '\n\t\t' + buildProgressBarSvg(itemX, itemW, bucketPercentage, bucketColor, colors, barY, barHeight);
+		});
+		return svg;
+	}
+
 	const isDepleted = percentage === 0;
 
 	if (isDepleted) {
@@ -155,16 +200,16 @@ function buildCategorySvg(options: CategorySvgOptions): string {
 			const timer = formatRemainingTimeSeparate(group.resetTime);
 			const textColor = weeklyLimitReached ? colors.error : colors.text;
 			svg += `
-		<text x="${contentX}" y="${bodyY + 6}" fill="${textColor}" fill-opacity="${OPACITY.high}" ${textStyleStart} font-size="${FONT_SIZE.xl}" font-weight="700">~${escapeXml(timer.relativeText)}</text>`;
+		<text x="${contentX}" y="${bodyY + 6}" fill="${textColor}" fill-opacity="${OPACITY.high}" ${textStyleStart} font-size="${FONT_SIZE.xl}" font-weight="700">~${escapeHtml(timer.relativeText)}</text>`;
 			if (timer.absoluteText) {
 				const parts = timer.absoluteText.split(/,\s*/);
 				const dateText = parts.length > 1 ? parts[0] : null;
 				const timeText = parts.length > 1 ? parts[parts.length - 1] : timer.absoluteText;
 				svg += `
-		<text x="${contentXEnd}" y="${bodyY}" fill="${textColor}" fill-opacity="${OPACITY.medium}" ${textStyleEnd} font-size="${FONT_SIZE.xs}" font-weight="500">${escapeXml(timeText)}</text>`;
+		<text x="${contentXEnd}" y="${bodyY}" fill="${textColor}" fill-opacity="${OPACITY.medium}" ${textStyleEnd} font-size="${FONT_SIZE.xs}" font-weight="500">${escapeHtml(timeText)}</text>`;
 				if (dateText) {
 					svg += `
-		<text x="${contentXEnd}" y="${bodyY + 13}" fill="${textColor}" fill-opacity="${OPACITY.medium}" ${textStyleEnd} font-size="${FONT_SIZE.xs}" font-weight="500">${escapeXml(dateText)}</text>`;
+		<text x="${contentXEnd}" y="${bodyY + 13}" fill="${textColor}" fill-opacity="${OPACITY.medium}" ${textStyleEnd} font-size="${FONT_SIZE.xs}" font-weight="500">${escapeHtml(dateText)}</text>`;
 				}
 			}
 		} else {
@@ -175,15 +220,20 @@ function buildCategorySvg(options: CategorySvgOptions): string {
 		svg += `
 		<text x="${contentX}" y="${bodyY + 6}" fill="${barColor}" ${textStyleStart} font-size="${FONT_SIZE.xxl}" font-weight="800">${percentage}%</text>`;
 
-		if (!isNotStartedQuota(percentage, resetMs) && typeof group.resetTime === 'number') {
-			const timer = formatRemainingTimeSeparate(group.resetTime);
-			const textColor = weeklyLimitReached ? colors.error : colors.text;
-			svg += `
-		<text x="${contentXEnd}" y="${bodyY}" fill="${textColor}" fill-opacity="${OPACITY.high}" ${textStyleEnd} font-size="${FONT_SIZE.md}" font-weight="600">~${escapeXml(timer.relativeText)}</text>`;
-
-			if (timer.absoluteText) {
+		if (typeof group.resetTime === 'number') {
+			if (isNotStartedQuota(percentage, resetMs)) {
 				svg += `
-		<text x="${contentXEnd}" y="${bodyY + 13}" fill="${textColor}" fill-opacity="${OPACITY.medium}" ${textStyleEnd} font-size="${FONT_SIZE.xs}" font-weight="500">${escapeXml(timer.absoluteText)}</text>`;
+		<text x="${contentXEnd}" y="${bodyY}" fill="${colors.text}" fill-opacity="${OPACITY.medium}" ${textStyleEnd} font-size="${FONT_SIZE.md}" font-weight="600">Not started</text>`;
+			} else {
+				const timer = formatRemainingTimeSeparate(group.resetTime);
+				const textColor = weeklyLimitReached ? colors.error : colors.text;
+				svg += `
+		<text x="${contentXEnd}" y="${bodyY}" fill="${textColor}" fill-opacity="${OPACITY.high}" ${textStyleEnd} font-size="${FONT_SIZE.md}" font-weight="600">~${escapeHtml(timer.relativeText)}</text>`;
+
+				if (timer.absoluteText) {
+					svg += `
+		<text x="${contentXEnd}" y="${bodyY + 13}" fill="${textColor}" fill-opacity="${OPACITY.medium}" ${textStyleEnd} font-size="${FONT_SIZE.xs}" font-weight="500">${escapeHtml(timer.absoluteText)}</text>`;
+				}
 			}
 		}
 	}
@@ -238,7 +288,7 @@ export function renderStats(data: UsageStatistics): { text: string; tooltip: vsc
 	const svgContent = buildSvgContent(categories, groups, weeklyPlanLabel);
 
 	const rawPlanDisplay = data.planName ?? plan.replace(/\b\w/g, c => c.toUpperCase());
-	const planDisplay = escapeXml(rawPlanDisplay);
+	const planDisplay = escapeHtml(rawPlanDisplay);
 
 	const tooltip = new vscode.MarkdownString();
 	tooltip.appendMarkdown(`<img src="data:image/svg+xml;base64,${Buffer.from(svgContent).toString('base64')}"/>\n\n`);

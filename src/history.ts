@@ -66,7 +66,7 @@ export class QuotaHistory {
 
   public prune() {
     const config = vscode.workspace.getConfiguration(CONFIG_NAMESPACE);
-    const maxHistoryItems = config.get<number>('maxHistoryItems', 15);
+    const maxHistoryItems = config.get<number>('maxHistoryItems', 50);
     const enableHistoryTracking = config.get<boolean>('enableHistoryTracking', true);
 
     if (!enableHistoryTracking) {
@@ -103,26 +103,41 @@ export class QuotaHistory {
       }
 
       const isInitial = previous === undefined;
-      const entry: QuotaHistoryEntry = {
-        category,
-        previousQuota: isInitial ? group.quota : previous,
-        currentQuota: group.quota,
-        delta: isInitial ? 0 : group.quota - previous,
-        timestamp: now,
-        resetTime: group.resetTime,
-        isInitial: isInitial ? true : undefined
-      };
+      const delta = isInitial ? 0 : group.quota - previous;
 
       if (enableHistoryTracking) {
-        newEntries.push(entry);
-        if (isInitial) {
-          const consumed = 1 - group.quota;
-          const hasExistingUsage = this.dailyUsage.some(e => e.category === category);
-          if (consumed > 0 && !hasExistingUsage) {
-            this.recordDailyConsumption(category, consumed);
+        const categoryEntries = this.entries.filter(e => e.category === category);
+        const lastEntry = categoryEntries[categoryEntries.length - 1];
+        const timeLimit = 5 * 60 * 1000;
+
+        if (lastEntry && !lastEntry.isInitial && lastEntry.delta < 0 && delta < 0 && (now - lastEntry.timestamp) < timeLimit) {
+          lastEntry.currentQuota = group.quota;
+          lastEntry.delta = group.quota - lastEntry.previousQuota;
+          lastEntry.timestamp = now;
+          lastEntry.resetTime = group.resetTime;
+
+          this.recordDailyConsumption(category, Math.abs(delta));
+        } else {
+          const entry: QuotaHistoryEntry = {
+            category,
+            previousQuota: isInitial ? group.quota : previous,
+            currentQuota: group.quota,
+            delta,
+            timestamp: now,
+            resetTime: group.resetTime,
+            isInitial: isInitial ? true : undefined
+          };
+          newEntries.push(entry);
+
+          if (isInitial) {
+            const consumed = 1 - group.quota;
+            const hasExistingUsage = this.dailyUsage.some(e => e.category === category);
+            if (consumed > 0 && !hasExistingUsage) {
+              this.recordDailyConsumption(category, consumed);
+            }
+          } else if (delta < 0) {
+            this.recordDailyConsumption(category, Math.abs(delta));
           }
-        } else if (entry.delta < 0) {
-          this.recordDailyConsumption(category, Math.abs(entry.delta));
         }
       }
       this.previousQuotas[category] = group.quota;

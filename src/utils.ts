@@ -1,6 +1,6 @@
 import { spawn } from 'child_process';
-import { CATEGORY_ORDER, MAX_PID_32BIT_SIGNED, MAX_PORT, MIN_PORT, MS_PER_DAY, MS_PER_HOUR, MS_PER_MINUTE, SERVER_STARTUP_DELAY } from './constants';
-import { QuotaGroup } from './types';
+import { CATEGORY_ORDER, MAX_PID_32BIT_SIGNED, MAX_PORT, MIN_PORT, MS_PER_DAY, MS_PER_HOUR, MS_PER_MINUTE, PROGRESS_BUCKET_BOUNDARIES, PROGRESS_STOPS, SERVER_STARTUP_DELAY } from './constants';
+import { QuotaBucket, QuotaGroup } from './types';
 
 export const MAX_BUFFER_SIZE = 1024 * 1024;
 
@@ -105,3 +105,32 @@ export function isLikelyServerGlitch(groups: Record<string, QuotaGroup>): boolea
       group.resetTime <= now;
   });
 }
+
+export function escapeHtml(text: string): string {
+  return text.replace(/[<>&"']/g, char => {
+    switch (char) {
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '&': return '&amp;';
+      case '"': return '&quot;';
+      case "'": return '&apos;';
+      default: return char;
+    }
+  });
+}
+
+export function getProgressStopIndex(percentage: number): number {
+  const idx = PROGRESS_BUCKET_BOUNDARIES.findIndex(boundary => percentage < boundary);
+  return idx === -1 ? PROGRESS_STOPS.length - 1 : idx;
+}
+
+export function sortQuotaBuckets(buckets: QuotaBucket[]): QuotaBucket[] {
+  const order = (window: string) => {
+    const w = window.toLowerCase();
+    if (w === '5h') { return 0; }
+    if (w === 'weekly') { return 1; }
+    return 2;
+  };
+  return [...buckets].sort((a, b) => order(a.window) - order(b.window));
+}
+

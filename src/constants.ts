@@ -39,7 +39,7 @@ export const IDE_INFO = {
 };
 
 export const SVG_CONFIG = {
-  columnWidth: 165,
+  columnWidth: 200,
   columnPadding: 0
 };
 

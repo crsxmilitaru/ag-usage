@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.8.0] - 2026-06-23
+
+- Added multi-window quota support (5-hour and weekly buckets) via the new quota summary API
+- Added `ag-usage.statusBarLimitDisplay` setting to customize status bar display
+- Redesigned tooltips and dashboard cards to render multiple limits
+- Optimized history logging by merging consecutive decrements within 5 minutes
+- Increased default `ag-usage.maxHistoryItems` to 50 (with maximum increased to 200)
+
 ## [1.7.1] - 2026-05-21
 
 - Fixed "Not started" detection for reset time display

@@ -1,4 +1,5 @@
 import * as https from 'https';
+import * as http from 'http';
 import {
   CATEGORY_NAMES,
   IDE_INFO,
@@ -9,8 +10,8 @@ import {
   RETRY_DELAY_MS
 } from './constants';
 import { getPlatformStrategy } from './platform';
-import { ProcessId, ProcessInfo, QuotaGroup, ServerUserStatusResponse, UsageStatistics } from './types';
-import { delay, getErrorMessage, MAX_BUFFER_SIZE, validatePid, validatePort } from './utils';
+import { ProcessId, ProcessInfo, QuotaBucket, QuotaGroup, ServerQuotaSummaryResponse, ServerUserStatusResponse, UsageStatistics } from './types';
+import { delay, getErrorMessage, MAX_BUFFER_SIZE, sortQuotaBuckets, validatePid, validatePort } from './utils';
 
 export function extractCsrfToken(cmd: string): string | undefined {
   const patterns = [
@@ -31,6 +32,7 @@ const LOCALHOST = '127.0.0.1';
 
 const API_ENDPOINTS = {
   GET_UNLEASH_DATA: '/exa.language_server_pb.LanguageServerService/GetUnleashData',
+  RETRIEVE_USER_QUOTA_SUMMARY: '/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary',
   GET_USER_STATUS: '/exa.language_server_pb.LanguageServerService/GetUserStatus'
 };
 
@@ -46,7 +48,21 @@ export async function findAntigravityProcess(): Promise<ProcessInfo> {
     throw new Error('Antigravity process not found. Make sure Antigravity is running.');
   }
 
-  matchingProcesses.sort((a, b) => b.pid - a.pid);
+  const scoreProcess = (process: ProcessInfo): number => {
+    const cmd = process.cmd.toLowerCase();
+    let score = 0;
+    if (cmd.includes('--standalone')) { score += 8; }
+    if (cmd.includes('--override_ide_name antigravity')) { score += 6; }
+    if (cmd.includes('\\antigravity\\resources\\bin\\language_server.exe')) { score += 6; }
+    if (cmd.includes('--app_data_dir antigravity')) { score += 4; }
+    if (cmd.includes('--app_data_dir antigravity-ide')) { score -= 2; }
+    return score;
+  };
+
+  matchingProcesses.sort((a, b) => {
+    const scoreDiff = scoreProcess(b) - scoreProcess(a);
+    return scoreDiff !== 0 ? scoreDiff : b.pid - a.pid;
+  });
   return matchingProcesses[0];
 }
 
@@ -61,10 +77,14 @@ export async function findListeningPorts(pid: ProcessId): Promise<number[]> {
   return Array.from(new Set(rawPorts));
 }
 
-async function checkPort(port: number, csrfToken: string): Promise<void> {
+async function checkLegacyPort(port: number, csrfToken: string): Promise<void> {
   await makeRequest(port, csrfToken, API_ENDPOINTS.GET_UNLEASH_DATA, {
     context: { properties: { ide: IDE_INFO.NAME, ideVersion: IDE_INFO.VERSION } }
   });
+}
+
+async function checkQuotaSummaryPort(port: number, csrfToken: string): Promise<void> {
+  await fetchQuotaSummaryGroups(port, csrfToken);
 }
 
 const NON_RETRIABLE_PATTERNS = [
@@ -95,7 +115,34 @@ export async function findValidPort(ports: number[], csrfToken: string): Promise
     try {
       return await Promise.any(ports.map(async (port) => {
         try {
-          await checkPort(port, csrfToken);
+          await checkQuotaSummaryPort(port, csrfToken);
+          return port;
+        } catch (error) {
+          errors.set(port, getErrorMessage(error));
+          throw error;
+        }
+      }));
+    } catch {
+      const allNonRetriable = errors.size === ports.length &&
+        Array.from(errors.values()).every(isNonRetriableError);
+
+      if (allNonRetriable) {
+        break;
+      }
+    }
+  }
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (attempt > 0) {
+      await delay(RETRY_DELAY_MS);
+    }
+
+    errors.clear();
+
+    try {
+      return await Promise.any(ports.map(async (port) => {
+        try {
+          await checkLegacyPort(port, csrfToken);
           return port;
         } catch (error) {
           errors.set(port, getErrorMessage(error));
@@ -123,7 +170,16 @@ export async function findValidPort(ports: number[], csrfToken: string): Promise
   throw new Error(`All port checks failed. [${errorSummary}]`);
 }
 
-export function makeRequest<T>(port: number, csrfToken: string, path: string, body: object, signal?: AbortSignal): Promise<T> {
+type LocalProtocol = 'https' | 'http';
+
+function makeLocalRequest<T>(
+  protocol: LocalProtocol,
+  port: number,
+  csrfToken: string,
+  path: string,
+  body: object,
+  signal?: AbortSignal
+): Promise<T> {
   return new Promise((resolve, reject) => {
     if (!validatePort(port)) {
       return reject(new Error(`Invalid port: ${port}`));
@@ -136,7 +192,7 @@ export function makeRequest<T>(port: number, csrfToken: string, path: string, bo
     const payload = JSON.stringify(body);
 
     let cleanedUp = false;
-    let request: ReturnType<typeof https.request> | null = null;
+    let request: ReturnType<typeof https.request> | ReturnType<typeof http.request> | null = null;
 
     const abortHandler = signal ? () => {
       cleanup();
@@ -156,7 +212,7 @@ export function makeRequest<T>(port: number, csrfToken: string, path: string, bo
       signal.addEventListener('abort', abortHandler, { once: true });
     }
 
-    request = https.request({
+    const options = {
       hostname: LOCALHOST,
       port,
       path,
@@ -165,11 +221,12 @@ export function makeRequest<T>(port: number, csrfToken: string, path: string, bo
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(payload),
         'X-Codeium-Csrf-Token': csrfToken,
+        'x-codeium-csrf-token': csrfToken,
         'Connect-Protocol-Version': '1'
       },
-      timeout: REQUEST_TIMEOUT_MS,
-      rejectUnauthorized: false
-    }, response => {
+      timeout: REQUEST_TIMEOUT_MS
+    };
+    const handleResponse = (response: http.IncomingMessage) => {
       response.setEncoding('utf8');
       let responseData = '';
       let byteCount = 0;
@@ -202,7 +259,11 @@ export function makeRequest<T>(port: number, csrfToken: string, path: string, bo
         cleanup();
         reject(err);
       });
-    });
+    };
+
+    request = protocol === 'https'
+      ? https.request({ ...options, rejectUnauthorized: false }, handleResponse)
+      : http.request(options, handleResponse);
 
     request.on('error', (err) => {
       cleanup();
@@ -220,6 +281,22 @@ export function makeRequest<T>(port: number, csrfToken: string, path: string, bo
   });
 }
 
+export function makeRequest<T>(port: number, csrfToken: string, path: string, body: object, signal?: AbortSignal): Promise<T> {
+  return makeLocalRequest<T>('https', port, csrfToken, path, body, signal);
+}
+
+async function makeProtocolRequest<T>(port: number, csrfToken: string, path: string, body: object): Promise<T> {
+  const errors: string[] = [];
+  for (const protocol of ['https', 'http'] as const) {
+    try {
+      return await makeLocalRequest<T>(protocol, port, csrfToken, path, body);
+    } catch (error) {
+      errors.push(`${protocol}: ${getErrorMessage(error)}`);
+    }
+  }
+  throw new Error(errors.join('; '));
+}
+
 function determineCategory(label: string): string {
   const lowerLabel = label.toLowerCase();
   if (lowerLabel.includes(MODEL_KEYWORDS.gemini) || lowerLabel.includes(MODEL_KEYWORDS.flash)) {
@@ -228,35 +305,126 @@ function determineCategory(label: string): string {
   return CATEGORY_NAMES.OTHER;
 }
 
-export async function fetchStats(port: number, csrfToken: string): Promise<UsageStatistics> {
-  const response = await makeRequest<ServerUserStatusResponse>(
-    port,
-    csrfToken,
-    API_ENDPOINTS.GET_USER_STATUS,
-    { metadata: { ideName: IDE_INFO.NAME } }
-  );
+function parseResetTime(value: string | number | undefined): number | null {
+  if (value == null) {
+    return null;
+  }
+  const resetTimestamp = typeof value === 'number'
+    ? value
+    : new Date(value).getTime();
+  return Number.isFinite(resetTimestamp) ? resetTimestamp : null;
+}
 
-  const models = response.userStatus?.cascadeModelConfigData?.clientModelConfigs ?? [];
+function parseQuotaFraction(value: number | string | undefined): number {
+  const parsed = parseFloat(String(value ?? ''));
+  return Number.isFinite(parsed) ? Math.max(0, Math.min(1, parsed)) : 0;
+}
+
+function normalizeBucketDisplayName(window: string | undefined, displayName: string | undefined): string {
+  const normalizedWindow = window?.toLowerCase();
+  if (normalizedWindow === 'weekly') {
+    return 'Weekly Limit';
+  }
+  if (normalizedWindow === '5h') {
+    return 'Five Hour Limit';
+  }
+  return displayName || window || 'Limit';
+}
+
+function parseQuotaSummary(response: ServerQuotaSummaryResponse): Record<string, QuotaGroup> {
   const groups: Record<string, QuotaGroup> = {};
 
-  for (const model of models) {
-    const { quotaInfo, label } = model;
+  for (const rawGroup of response.response?.groups ?? []) {
+    const displayName = rawGroup.displayName ?? '';
+    const category = determineCategory(displayName);
+    const buckets: QuotaBucket[] = [];
 
-    const parsed = parseFloat(String(quotaInfo?.remainingFraction ?? ''));
-    const modelQuota = Number.isFinite(parsed) ? parsed : 0;
-    const category = determineCategory(label);
-    const group = groups[category] ??= { quota: 1, resetTime: null };
-
-    if (modelQuota < group.quota) {
-      group.quota = modelQuota;
+    for (const rawBucket of rawGroup.buckets ?? []) {
+      const quota = parseQuotaFraction(rawBucket.remainingFraction);
+      buckets.push({
+        window: rawBucket.window ?? rawBucket.bucketId ?? rawBucket.displayName ?? 'unknown',
+        displayName: normalizeBucketDisplayName(rawBucket.window, rawBucket.displayName),
+        quota,
+        resetTime: parseResetTime(rawBucket.resetTime)
+      });
     }
 
-    const rawResetTime = quotaInfo?.resetTime;
-    if (rawResetTime != null) {
-      const resetTimestamp = typeof rawResetTime === 'number'
-        ? rawResetTime
-        : new Date(rawResetTime).getTime();
-      if (Number.isFinite(resetTimestamp) && (group.resetTime === null || resetTimestamp < group.resetTime)) {
+    if (buckets.length === 0) {
+      continue;
+    }
+
+    const sortedBuckets = sortQuotaBuckets(buckets);
+
+    const effectiveBucket = sortedBuckets.reduce((lowest, bucket) => bucket.quota < lowest.quota ? bucket : lowest, sortedBuckets[0]);
+    const group = groups[category] ??= { quota: 1, resetTime: null, buckets: [] };
+    group.buckets = [...(group.buckets ?? []), ...sortedBuckets];
+
+    if (effectiveBucket.quota < group.quota) {
+      group.quota = effectiveBucket.quota;
+      group.resetTime = effectiveBucket.resetTime;
+    }
+  }
+
+  return groups;
+}
+
+async function requestQuotaSummary(port: number, csrfToken: string): Promise<ServerQuotaSummaryResponse> {
+  return makeProtocolRequest<ServerQuotaSummaryResponse>(
+    port,
+    csrfToken,
+    API_ENDPOINTS.RETRIEVE_USER_QUOTA_SUMMARY,
+    {}
+  );
+}
+
+async function fetchQuotaSummaryGroups(port: number, csrfToken: string): Promise<Record<string, QuotaGroup>> {
+  const response = await requestQuotaSummary(port, csrfToken);
+  const groups = parseQuotaSummary(response);
+  if (Object.keys(groups).length === 0) {
+    throw new Error('Quota summary response did not include any quota groups');
+  }
+  return groups;
+}
+
+export async function fetchStats(port: number, csrfToken: string): Promise<UsageStatistics> {
+  let summaryGroups: Record<string, QuotaGroup> | null;
+  try {
+    summaryGroups = await fetchQuotaSummaryGroups(port, csrfToken);
+  } catch {
+    summaryGroups = null;
+  }
+
+  let response: ServerUserStatusResponse = {};
+  try {
+    response = await makeRequest<ServerUserStatusResponse>(
+      port,
+      csrfToken,
+      API_ENDPOINTS.GET_USER_STATUS,
+      { metadata: { ideName: IDE_INFO.NAME } }
+    );
+  } catch (error) {
+    if (!summaryGroups) {
+      throw error;
+    }
+  }
+
+  const models = response.userStatus?.cascadeModelConfigData?.clientModelConfigs ?? [];
+  const groups: Record<string, QuotaGroup> = summaryGroups ?? {};
+
+  if (!summaryGroups) {
+    for (const model of models) {
+      const { quotaInfo, label } = model;
+
+      const modelQuota = parseQuotaFraction(quotaInfo?.remainingFraction);
+      const category = determineCategory(label);
+      const group = groups[category] ??= { quota: 1, resetTime: null };
+
+      if (modelQuota < group.quota) {
+        group.quota = modelQuota;
+      }
+
+      const resetTimestamp = parseResetTime(quotaInfo?.resetTime);
+      if (resetTimestamp !== null && (group.resetTime === null || resetTimestamp < group.resetTime)) {
         group.resetTime = resetTimestamp;
       }
     }

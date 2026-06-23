@@ -1,6 +1,6 @@
 {
   "name": "ag-usage",
-  "version": "1.7.1",
+  "version": "1.8.0",
   "displayName": "AG Usage",
   "description": "Track usage of Antigravity AI models",
   "author": "Cristian Militaru",
@@ -106,6 +106,19 @@
           ],
           "description": "What to display in the status bar."
         },
+        "ag-usage.statusBarLimitDisplay": {
+          "type": "string",
+          "default": "both",
+          "enum": [
+            "only5h",
+            "both"
+          ],
+          "enumDescriptions": [
+            "Show only the 5-hour quota",
+            "Show both 5-hour and weekly quotas (e.g. Gemini 21% (99%))"
+          ],
+          "description": "How to display the quota limits in the status bar."
+        },
         "ag-usage.statusBarCountdown": {
           "type": "boolean",
           "default": true,
@@ -172,9 +185,9 @@
         },
         "ag-usage.maxHistoryItems": {
           "type": "number",
-          "default": 15,
+          "default": 50,
           "minimum": 1,
-          "maximum": 30,
+          "maximum": 200,
           "description": "Maximum number of history items to persist per group."
         },
         "ag-usage.enableHistoryTracking": {
@@ -215,11 +228,11 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/node": "^25.9.1",
+    "@types/node": "^26.0.0",
     "@types/vscode": "^1.107.0",
-    "esbuild": "^0.28.0",
-    "eslint": "^10.4.0",
+    "esbuild": "^0.28.1",
+    "eslint": "^10.5.0",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.59.4"
+    "typescript-eslint": "^8.62.0"
   }
 }

@@ -1,6 +1,14 @@
 export interface QuotaGroup {
   quota: number;
   resetTime: number | null;
+  buckets?: QuotaBucket[];
+}
+
+export interface QuotaBucket {
+  window: 'weekly' | '5h' | string;
+  displayName: string;
+  quota: number;
+  resetTime: number | null;
 }
 
 export interface CachedConnection {
@@ -36,6 +44,8 @@ export interface ProcessInfo {
 }
 
 export type StatusBarDisplayMode = 'average' | 'all' | 'gemini' | 'other';
+
+export type StatusBarLimitDisplayMode = 'only5h' | 'both';
 
 export type ResetTimeDisplayMode = 'relative' | 'absolute' | 'both';
 
@@ -75,4 +85,19 @@ export interface ServerUserStatusResponse {
   };
   plan?: string;
   planName?: string;
+}
+
+export interface ServerQuotaSummaryResponse {
+  response?: {
+    groups?: Array<{
+      displayName?: string;
+      buckets?: Array<{
+        bucketId?: string;
+        displayName?: string;
+        remainingFraction?: number | string;
+        resetTime?: string | number;
+        window?: string;
+      }>;
+    }>;
+  };
 }

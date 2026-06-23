@@ -1,9 +1,9 @@
 import * as vscode from 'vscode';
-import { CATEGORY_ORDER, CONFIG_NAMESPACE, PROGRESS_BUCKET_BOUNDARIES, PROGRESS_STOPS, THEME_COLORS } from './constants';
+import { CATEGORY_ORDER, CONFIG_NAMESPACE, PROGRESS_STOPS, THEME_COLORS } from './constants';
 import { formatFullTimestamp, formatLocalDate, formatQuotaPercent, formatRelativeTime, formatRemainingTimeSeparate, resolveLocale } from './formatter';
 import { QuotaHistory, QuotaHistoryEntry } from './history';
 import { DailyUsageEntry, QuotaGroup, ServiceStatus, UsageStatistics } from './types';
-import { isNotStartedQuota, isWeeklyLimitReached } from './utils';
+import { escapeHtml, getProgressStopIndex, isNotStartedQuota, isWeeklyLimitReached, sortQuotaBuckets } from './utils';
 
 export class UsageViewProvider implements vscode.WebviewViewProvider {
 	public static readonly viewType = 'ag-usage.sidebarPanel';
@@ -70,7 +70,7 @@ export class UsageViewProvider implements vscode.WebviewViewProvider {
 		}
 	}
 
-	private updateView() {
+	public updateView() {
 		if (!this.view || !this.quotaHistory) { return; }
 		const config = vscode.workspace.getConfiguration(CONFIG_NAMESPACE);
 		const locale = resolveLocale(config.get<string>('dateFormatLocale', 'default'));
@@ -84,18 +84,14 @@ export class UsageViewProvider implements vscode.WebviewViewProvider {
 	}
 }
 
-function escapeHtml(text: string): string {
-	return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
 function formatPercent(fraction: number): string {
 	return `${formatQuotaPercent(fraction)}%`;
 }
 
 function getBarColorClass(fraction: number): string {
 	const pct = formatQuotaPercent(fraction);
-	const idx = PROGRESS_BUCKET_BOUNDARIES.findIndex(boundary => pct < boundary);
-	return `bar-p${PROGRESS_STOPS[idx === -1 ? PROGRESS_STOPS.length - 1 : idx]}`;
+	const idx = getProgressStopIndex(pct);
+	return `bar-p${PROGRESS_STOPS[idx]}`;
 }
 
 function getDeltaClass(delta: number): string {
@@ -181,20 +177,36 @@ function buildHistoryItemHtml(entry: QuotaHistoryEntry, previousEntry?: QuotaHis
 function buildHistorySparkline(entries: QuotaHistoryEntry[], locale?: string): string {
 	if (entries.length < 2) { return ''; }
 
+	const chartEntries: QuotaHistoryEntry[] = [];
+	entries.forEach((entry, idx) => {
+		if (idx === 0 || idx === entries.length - 1) {
+			chartEntries.push(entry);
+		} else {
+			const lastKept = chartEntries[chartEntries.length - 1];
+			const quotaDiff = Math.abs(entry.currentQuota - lastKept.currentQuota);
+			const timeDiff = entry.timestamp - lastKept.timestamp;
+			if (quotaDiff >= 0.05 || timeDiff >= 30 * 60 * 1000) {
+				chartEntries.push(entry);
+			}
+		}
+	});
+
+	if (chartEntries.length < 2) { return ''; }
+
 	const width = 200;
 	const height = 44;
 	const padding = 8;
 	const chartWidth = width - padding * 2;
 	const chartHeight = height - padding * 2;
 
-	const scaleX = (i: number) => padding + (entries.length > 1 ? i / (entries.length - 1) : 0.5) * chartWidth;
+	const scaleX = (i: number) => padding + (chartEntries.length > 1 ? i / (chartEntries.length - 1) : 0.5) * chartWidth;
 	const scaleY = (val: number) => padding + chartHeight - (val / 100) * chartHeight;
 
 	const lineColor = 'var(--text-secondary)';
 
 	let pathD = '';
 	let dotsHtml = '';
-	entries.forEach((entry, i) => {
+	chartEntries.forEach((entry, i) => {
 		const pct = entry.currentQuota * 100;
 		const x = scaleX(i);
 		const y = scaleY(pct);
@@ -224,7 +236,7 @@ function buildHistorySparkline(entries: QuotaHistoryEntry[], locale?: string): s
 function buildHistorySectionHtml(category: string, categoryEntries: QuotaHistoryEntry[], locale?: string): string {
 	if (categoryEntries.length === 0) { return ''; }
 
-	const sparklineHtml = buildHistorySparkline([...categoryEntries].reverse(), locale);
+	const sparklineHtml = buildHistorySparkline(categoryEntries.slice(0, 20).reverse(), locale);
 
 	return `
 		<details class="card-history-details">
@@ -265,6 +277,63 @@ function buildCardHeaderHtml(category: string, group: QuotaGroup | undefined, lo
 
 	const pct = formatQuotaPercent(group.quota);
 	const colorClass = getBarColorClass(group.quota);
+
+	if (group.buckets?.length) {
+		const orderedBuckets = sortQuotaBuckets(group.buckets);
+
+		const bucketRows = orderedBuckets.map(bucket => {
+			const bucketPct = formatQuotaPercent(bucket.quota);
+			const bucketColorClass = getBarColorClass(bucket.quota);
+			const isWeeklyBucket = bucket.window.toLowerCase() === 'weekly';
+			let resetValueHtml = '';
+			if (bucket.resetTime) {
+				const resetMs = bucket.resetTime - Date.now();
+				if (!isNotStartedQuota(bucketPct, resetMs)) {
+					if (resetMs > 0) {
+						const timer = formatRemainingTimeSeparate(bucket.resetTime);
+						resetValueHtml = timer.absoluteText
+							? `<span>${escapeHtml(timer.relativeText)}</span><span class="abs-time"> (${escapeHtml(timer.absoluteText)})</span>`
+							: `<span>${escapeHtml(timer.relativeText)}</span>`;
+					} else {
+						resetValueHtml = `<span>${escapeHtml(formatFullTimestamp(bucket.resetTime, locale))}</span>`;
+					}
+				} else {
+					resetValueHtml = '<span>Not started</span>';
+				}
+			}
+
+			const bucketLabel = bucket.window.toLowerCase() === 'weekly' ? 'Weekly' : bucket.window.toLowerCase() === '5h' ? '5h' : bucket.displayName;
+
+			return `
+				<div class="quota-bucket-row ${isWeeklyBucket ? 'weekly-bucket' : 'five-hour-container'}">
+					<div class="quota-bucket-row-header">
+						<span class="bucket-label">${escapeHtml(bucketLabel)}</span>
+					</div>
+					<div class="quota-bucket-row-body">
+						<span class="bucket-value ${bucketColorClass}">${bucketPct}%</span>
+						${resetValueHtml ? `<span class="bucket-reset-time">${resetValueHtml}</span>` : ''}
+					</div>
+					<div class="quota-bar-track bucket-bar">
+						<div class="quota-bar-continuous-bg">
+							<div class="quota-bar-continuous-fill ${bucketColorClass}" style="width:${bucketPct}%"></div>
+						</div>
+					</div>
+				</div>`;
+		}).join('');
+
+		return `
+		<div class="quota-card-header">
+			<div class="quota-card-title">
+				<span class="quota-label">${escapeHtml(category)}</span>
+			</div>
+		</div>
+		<div class="quota-card-inner-wrap">
+			<div class="quota-card-inner-content quota-buckets">
+				${bucketRows}
+			</div>
+		</div>`;
+	}
+
 	let resetLabel = 'Resets at';
 	let resetValueHtml = 'Not started';
 	if (group.resetTime) {
@@ -496,16 +565,89 @@ body {
 .quota-value.bar-p60 { color: var(--progress-60); }
 .quota-value.bar-p80 { color: var(--progress-80); }
 .quota-value.bar-p100 { color: var(--progress-100); }
+.quota-buckets { display: flex; flex-direction: column; gap: 0; }
+.quota-bucket-row { display: flex; flex-direction: column; position: relative; }
 
-.quota-bar-track { display: flex; gap: 2px; height: 6px; margin-bottom: 14px; }
+.five-hour-container {
+	background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+	border: 1px solid var(--card-border);
+	border-radius: var(--radius-sm);
+	padding: 12px 12px 8px;
+	margin-bottom: 12px;
+}
+
+.weekly-bucket {
+	padding: 0 12px;
+	margin-top: 4px;
+	margin-bottom: 4px;
+}
+
+.quota-bucket-row-header {
+	display: flex;
+	justify-content: flex-end;
+	margin-bottom: 2px;
+}
+
+.bucket-label {
+	font-size: 12px;
+	font-weight: 700;
+	color: var(--text-secondary);
+	text-transform: uppercase;
+	letter-spacing: 0.5px;
+}
+
+.quota-bucket-row-body {
+	display: flex;
+	justify-content: space-between;
+	align-items: baseline;
+	margin-bottom: 8px;
+}
+
+.bucket-value {
+	font-size: 18px;
+	font-weight: 800;
+	line-height: 1;
+	font-variant-numeric: tabular-nums;
+}
+.bucket-value.bar-p0 { color: var(--progress-0); }
+.bucket-value.bar-p20 { color: var(--progress-20); }
+.bucket-value.bar-p40 { color: var(--progress-40); }
+.bucket-value.bar-p60 { color: var(--progress-60); }
+.bucket-value.bar-p80 { color: var(--progress-80); }
+.bucket-value.bar-p100 { color: var(--progress-100); }
+
+.bucket-reset-time {
+	font-size: 11px;
+	font-weight: 500;
+	color: var(--text-secondary);
+}
+.bucket-reset-time .abs-time {
+	opacity: 0.5;
+}
+
+.bucket-bar {
+	margin-bottom: 0;
+	height: 3px;
+	gap: 0;
+}
+
+.quota-bar-track { display: flex; gap: 2px; height: 6px; margin-bottom: 8px; }
 .quota-bar-segment-bg { flex: 1; background: var(--table-border); border-radius: 3px; overflow: hidden; }
 .quota-bar-segment-fill { height: 100%; border-radius: 3px; transition: width 0.3s ease; }
+.quota-bar-continuous-bg { flex: 1; background: var(--table-border); border-radius: 3px; overflow: hidden; }
+.quota-bar-continuous-fill { height: 100%; border-radius: 3px; transition: width 0.3s ease; }
 .quota-bar-segment-fill.bar-p0 { background: var(--progress-0); }
 .quota-bar-segment-fill.bar-p20 { background: var(--progress-20); }
 .quota-bar-segment-fill.bar-p40 { background: var(--progress-40); }
 .quota-bar-segment-fill.bar-p60 { background: var(--progress-60); }
 .quota-bar-segment-fill.bar-p80 { background: var(--progress-80); }
 .quota-bar-segment-fill.bar-p100 { background: var(--progress-100); }
+.quota-bar-continuous-fill.bar-p0 { background: var(--progress-0); }
+.quota-bar-continuous-fill.bar-p20 { background: var(--progress-20); }
+.quota-bar-continuous-fill.bar-p40 { background: var(--progress-40); }
+.quota-bar-continuous-fill.bar-p60 { background: var(--progress-60); }
+.quota-bar-continuous-fill.bar-p80 { background: var(--progress-80); }
+.quota-bar-continuous-fill.bar-p100 { background: var(--progress-100); }
 
 .quota-reset { display: flex; justify-content: space-between; align-items: center; }
 .reset-label { font-size: 11px; color: var(--text-muted); }
