@@ -1,8 +1,9 @@
+import * as crypto from 'crypto';
 import * as vscode from 'vscode';
-import { CATEGORY_ORDER, CONFIG_NAMESPACE, PROGRESS_STOPS, THEME_COLORS } from './constants';
+import { BUCKET_OPACITY, CATEGORY_ORDER, CONFIG_NAMESPACE, PROGRESS_STOPS, STATUSGATOR_SERVICE_URL, THEME_COLORS } from './constants';
 import { formatFullTimestamp, formatLocalDate, formatQuotaPercent, formatRelativeTime, formatRemainingTimeSeparate, resolveLocale } from './formatter';
 import { QuotaHistory, QuotaHistoryEntry } from './history';
-import { DailyUsageEntry, QuotaGroup, ServiceStatus, UsageStatistics } from './types';
+import { DailyUsageEntry, PublicServiceStatus, QuotaGroup, ServiceStatus, UsageStatistics } from './types';
 import { escapeHtml, getProgressStopIndex, isNotStartedQuota, isWeeklyLimitReached, sortQuotaBuckets } from './utils';
 
 export class UsageViewProvider implements vscode.WebviewViewProvider {
@@ -11,10 +12,13 @@ export class UsageViewProvider implements vscode.WebviewViewProvider {
 	private lastStatsData: UsageStatistics | null = null;
 	private quotaHistory: QuotaHistory | null = null;
 	private lastServiceStatus: ServiceStatus = 'disconnected';
+	private publicServiceStatus: PublicServiceStatus | null = null;
 	private heatmapMonth: number = new Date().getMonth();
 	private heatmapYear: number = new Date().getFullYear();
+	private notifiedVisible = false;
 	private disposables: vscode.Disposable[] = [];
 	public onHistoryChanged?: (history: QuotaHistory) => void;
+	public onDidBecomeVisible?: () => void;
 
 	public resolveWebviewView(
 		webviewView: vscode.WebviewView,
@@ -30,6 +34,14 @@ export class UsageViewProvider implements vscode.WebviewViewProvider {
 
 		webviewView.onDidDispose(() => {
 			this.view = undefined;
+		}, null, this.disposables);
+
+		webviewView.onDidChangeVisibility(() => {
+			if (webviewView.visible) {
+				this.notifyVisible();
+			} else {
+				this.notifiedVisible = false;
+			}
 		}, null, this.disposables);
 
 		webviewView.webview.onDidReceiveMessage((message) => {
@@ -59,12 +71,22 @@ export class UsageViewProvider implements vscode.WebviewViewProvider {
 		}, null, this.disposables);
 
 		this.updateView();
+		if (webviewView.visible) {
+			this.notifyVisible();
+		}
 	}
 
-	public update(statsData: UsageStatistics | null, history: QuotaHistory, serviceStatus: ServiceStatus = 'disconnected') {
+	private notifyVisible(): void {
+		if (this.notifiedVisible) { return; }
+		this.notifiedVisible = true;
+		this.onDidBecomeVisible?.();
+	}
+
+	public update(statsData: UsageStatistics | null, history: QuotaHistory, serviceStatus: ServiceStatus = 'disconnected', publicServiceStatus: PublicServiceStatus | null = null) {
 		this.lastStatsData = statsData;
 		this.quotaHistory = history;
 		this.lastServiceStatus = serviceStatus;
+		this.publicServiceStatus = publicServiceStatus;
 		if (this.view) {
 			this.updateView();
 		}
@@ -75,7 +97,7 @@ export class UsageViewProvider implements vscode.WebviewViewProvider {
 		const config = vscode.workspace.getConfiguration(CONFIG_NAMESPACE);
 		const locale = resolveLocale(config.get<string>('dateFormatLocale', 'default'));
 		const refreshInterval = config.get<number>('refreshInterval', 60);
-		this.view.webview.html = buildPanelHtml(this.lastStatsData, this.quotaHistory, this.heatmapMonth, this.heatmapYear, locale, this.lastServiceStatus, refreshInterval);
+		this.view.webview.html = buildPanelHtml(this.lastStatsData, this.quotaHistory, this.heatmapMonth, this.heatmapYear, locale, this.lastServiceStatus, refreshInterval, this.publicServiceStatus);
 	}
 
 	dispose() {
@@ -255,7 +277,7 @@ function buildHistorySectionHtml(category: string, categoryEntries: QuotaHistory
 		const previousEntry = categoryEntries[index + 1];
 		return buildHistoryItemHtml(entry, previousEntry, locale);
 	}).join('')}
-					<div class="history-clear-row" role="button" tabindex="0" data-category="${escapeHtml(category)}" onclick="clearCatHistory(event, this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();clearCatHistory(event,this)}">
+					<div class="history-clear-row" role="button" tabindex="0" data-category="${escapeHtml(category)}">
 						<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path fill-rule="evenodd" clip-rule="evenodd" d="M10 3h3v1h-1v9l-1 1H4l-1-1V4H2V3h3V2a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1zM6 2v1h3V2H6zm4 11V4H5v9h5z" /></svg>
 						<span>Clear History</span>
 					</div>
@@ -306,12 +328,12 @@ function buildCardHeaderHtml(category: string, group: QuotaGroup | undefined, lo
 
 			return `
 				<div class="quota-bucket-row ${isWeeklyBucket ? 'weekly-bucket' : 'five-hour-container'}">
-					<div class="quota-bucket-row-header">
-						<span class="bucket-label">${escapeHtml(bucketLabel)}</span>
-					</div>
 					<div class="quota-bucket-row-body">
 						<span class="bucket-value ${bucketColorClass}">${bucketPct}%</span>
-						${resetValueHtml ? `<span class="bucket-reset-time">${resetValueHtml}</span>` : ''}
+						<div class="bucket-meta">
+							<span class="bucket-label">${escapeHtml(bucketLabel)}</span>
+							${resetValueHtml ? `<span class="bucket-reset-time">${resetValueHtml}</span>` : ''}
+						</div>
 					</div>
 					<div class="quota-bar-track bucket-bar">
 						<div class="quota-bar-continuous-bg">
@@ -440,9 +462,11 @@ function getPanelStyles(): string {
 	--success: ${THEME_COLORS.dark.success};
 	--warning: ${THEME_COLORS.dark.warning};
 	--error: ${THEME_COLORS.dark.error};
+	--metric-row-bg: color-mix(in srgb, var(--text-primary) ${BUCKET_OPACITY.defaultBg * 100}%, transparent);
+	--metric-row-border: color-mix(in srgb, var(--card-border) ${BUCKET_OPACITY.defaultBorder * 100}%, transparent);
 ${buildProgressVars(THEME_COLORS.dark.progress)}
 	--radius-sm: 6px;
-	--radius-lg: 14px;
+	--radius-lg: 10px;
 }
 
 body.vscode-light {
@@ -515,16 +539,56 @@ body {
 .empty-state.loading {
 	animation: pulse 1.8s ease-in-out infinite;
 }
+.panel-loading-body {
+	justify-content: center;
+	min-height: 100%;
+	overflow: hidden;
+}
+.panel-loading-screen {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 16px;
+	min-height: 280px;
+	text-align: center;
+	color: var(--text-secondary);
+}
+.panel-loading-spinner {
+	width: 34px;
+	height: 34px;
+	border: 2px solid var(--table-border);
+	border-top-color: var(--progress-80);
+	border-radius: 50%;
+	animation: spin 0.9s linear infinite;
+}
+.panel-loading-title {
+	font-size: 13px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.6px;
+	color: var(--text-primary);
+}
+.panel-loading-subtitle {
+	max-width: 220px;
+	font-size: 11px;
+	line-height: 1.4;
+	color: var(--text-muted);
+}
 @keyframes pulse {
 	0%, 100% { opacity: 0.4; }
 	50% { opacity: 1; }
+}
+@keyframes spin {
+	to { transform: rotate(360deg); }
 }
 
 .quota-card {
 	background: var(--card-bg);
 	border: 1px solid var(--card-border);
 	border-radius: var(--radius-lg);
-	padding: 16px;
+	padding: 14px;
 	flex: 0 0 auto;
 	display: flex;
 	flex-direction: column;
@@ -547,7 +611,7 @@ body {
 	display: flex;
 	justify-content: space-between;
 	align-items: center;
-	margin-bottom: 12px;
+	margin-bottom: 10px;
 	transition: margin-bottom 0.15s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .quota-card-title { display: flex; align-items: center; gap: 8px; }
@@ -558,49 +622,52 @@ body {
 	letter-spacing: 0.6px;
 	color: var(--text-secondary);
 }
-.quota-value { font-size: 20px; font-weight: 700; letter-spacing: -0.5px; }
+.quota-value { font-size: 20px; font-weight: 700; letter-spacing: 0; }
 .quota-value.bar-p0 { color: var(--progress-0); }
 .quota-value.bar-p20 { color: var(--progress-20); }
 .quota-value.bar-p40 { color: var(--progress-40); }
 .quota-value.bar-p60 { color: var(--progress-60); }
 .quota-value.bar-p80 { color: var(--progress-80); }
 .quota-value.bar-p100 { color: var(--progress-100); }
-.quota-buckets { display: flex; flex-direction: column; gap: 0; }
-.quota-bucket-row { display: flex; flex-direction: column; position: relative; }
+.quota-buckets { display: flex; flex-direction: column; gap: 8px; }
+.quota-bucket-row {
+	display: flex;
+	flex-direction: column;
+	position: relative;
+	background: var(--metric-row-bg);
+	border: 1px solid var(--metric-row-border);
+	border-radius: var(--radius-sm);
+	padding: 10px 12px 8px;
+	min-height: 50px;
+}
 
 .five-hour-container {
-	background: color-mix(in srgb, var(--text-primary) 4%, transparent);
-	border: 1px solid var(--card-border);
-	border-radius: var(--radius-sm);
-	padding: 12px 12px 8px;
-	margin-bottom: 12px;
+	margin: 0;
 }
 
 .weekly-bucket {
-	padding: 0 12px;
-	margin-top: 4px;
-	margin-bottom: 4px;
-}
-
-.quota-bucket-row-header {
-	display: flex;
-	justify-content: flex-end;
-	margin-bottom: 2px;
+	margin: 0;
+	background: color-mix(in srgb, var(--text-primary) ${BUCKET_OPACITY.weeklyBg * 100}%, transparent);
+	border-color: color-mix(in srgb, var(--metric-row-border) ${BUCKET_OPACITY.weeklyBorder * 100}%, transparent);
 }
 
 .bucket-label {
-	font-size: 12px;
-	font-weight: 700;
-	color: var(--text-secondary);
-	text-transform: uppercase;
-	letter-spacing: 0.5px;
+	font-size: 11px;
+	font-weight: 650;
+	color: var(--text-muted);
+	line-height: 1.05;
+	max-width: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .quota-bucket-row-body {
 	display: flex;
 	justify-content: space-between;
-	align-items: baseline;
+	align-items: center;
 	margin-bottom: 8px;
+	gap: 10px;
 }
 
 .bucket-value {
@@ -608,6 +675,14 @@ body {
 	font-weight: 800;
 	line-height: 1;
 	font-variant-numeric: tabular-nums;
+}
+.bucket-meta {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 2px;
+	min-width: 0;
+	text-align: right;
 }
 .bucket-value.bar-p0 { color: var(--progress-0); }
 .bucket-value.bar-p20 { color: var(--progress-20); }
@@ -618,16 +693,22 @@ body {
 
 .bucket-reset-time {
 	font-size: 11px;
-	font-weight: 500;
+	font-weight: 600;
 	color: var(--text-secondary);
+	line-height: 1.05;
+	font-variant-numeric: tabular-nums;
+	max-width: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 .bucket-reset-time .abs-time {
-	opacity: 0.5;
+	opacity: 0.68;
 }
 
 .bucket-bar {
 	margin-bottom: 0;
-	height: 3px;
+	height: 5px;
 	gap: 0;
 }
 
@@ -654,14 +735,6 @@ body {
 .reset-value { font-size: 11px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 .reset-interval { color: var(--text-muted); opacity: 0.8; }
 
-.service-status-indicator {
-	font-size: 14px;
-	line-height: 1;
-}
-.service-status-indicator.service-ok { color: var(--success); }
-.service-status-indicator.service-degraded { color: var(--warning); }
-.service-status-indicator.service-error { color: var(--error); }
-
 .top-row {
 	display: flex;
 	flex-direction: row;
@@ -682,18 +755,6 @@ body {
 	flex-direction: row;
 	align-items: center;
 	justify-content: center;
-}
-.top-row .status-card {
-	gap: 8px;
-}
-.status-label {
-	font-size: 10px;
-	font-weight: 600;
-	text-transform: uppercase;
-	letter-spacing: 0.5px;
-	color: var(--text-secondary);
-	line-height: 1.1;
-	max-width: 70px;
 }
 .top-row .quota-card.clickable-card {
 	cursor: pointer;
@@ -716,16 +777,19 @@ body {
 	opacity: 0;
 	transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 	pointer-events: none;
+	text-decoration: none;
 }
 .top-row .quota-card.clickable-card:hover .card-action-overlay,
-.card-history-summary:hover .card-action-overlay {
+.card-history-summary:hover .card-action-overlay,
+.public-health-chart:hover .card-action-overlay {
 	opacity: 1;
 	color: var(--text-primary);
 	background: color-mix(in srgb, var(--vscode-editorWidget-background) 70%, transparent);
 	backdrop-filter: blur(8px);
 }
 .card-history-summary:hover .card-action-overlay {
-	backdrop-filter: blur(4px);
+	background: transparent;
+	backdrop-filter: none;
 }
 .plan-value {
 	font-size: 12px;
@@ -753,6 +817,17 @@ body {
 	border-radius: var(--radius-sm);
 	position: relative;
 	overflow: hidden;
+}
+.card-history-summary .card-action-overlay {
+	position: absolute;
+	top: auto;
+	left: 0;
+	right: 0;
+	bottom: 2px;
+	min-height: 18px;
+	opacity: 0.72;
+	background: transparent;
+	backdrop-filter: none;
 }
 .card-history-details[open] .card-history-summary .expand-text,
 .card-history-details[open] .card-history-summary .expand-icon {
@@ -787,7 +862,7 @@ body {
 }
 .history-clear-row:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
 
-.history-chart { background: var(--panel-bg); border-radius: var(--radius-sm); padding: 4px; transition: opacity 0.15s ease; opacity: 0.7; }
+.history-chart { background: var(--panel-bg); border-radius: var(--radius-sm); padding: 4px 4px 16px; transition: opacity 0.15s ease; opacity: 0.7; }
 .history-chart:hover { opacity: 1; }
 .history-chart svg { display: block; width: 100%; height: auto; }
 .history-chart circle { transition: r 0.15s ease; cursor: default; }
@@ -981,30 +1056,81 @@ body {
 	margin: 1px 0;
 }
 
+.public-health-section {
+	background: var(--card-bg);
+	border: 1px solid var(--card-border);
+	border-radius: var(--radius-lg);
+	padding: 12px;
+	flex-shrink: 0;
+}
+.public-health-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: flex-start;
+	gap: 10px;
+	margin-bottom: 8px;
+}
+.public-health-title {
+	font-size: 12px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.6px;
+	color: var(--text-secondary);
+	line-height: 1.2;
+}
+.public-health-time {
+	font-size: 10px;
+	color: var(--text-muted);
+	line-height: 1.2;
+	align-self: center;
+}
+.public-health-chart {
+	background: color-mix(in srgb, var(--panel-bg) 78%, var(--card-bg));
+	border: 1px solid var(--table-border);
+	border-radius: var(--radius-sm);
+	padding: 6px;
+	position: relative;
+	overflow: hidden;
+}
+.public-health-chart > svg {
+	display: block;
+	width: 100%;
+	height: auto;
+}
+.public-health-legend {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+	gap: 8px;
+	margin-top: 8px;
+	font-size: 10px;
+	color: var(--text-secondary);
+}
+.public-health-legend span {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+}
+.health-dot {
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	display: inline-block;
+}
+.health-up { background: #21bf73; }
+.health-warn { background: #ffa133; }
+.health-down { background: #fd5e53; }
+.public-health-chart-overlay {
+	pointer-events: auto !important;
+	cursor: pointer;
+}
+
 `;
 }
 
-function buildTopRow(statsData: UsageStatistics | null, serviceStatus: ServiceStatus = 'disconnected'): string {
+function buildTopRow(statsData: UsageStatistics | null): string {
 	const planDisplay = statsData?.planName ?? statsData?.plan ?? '';
 	const credits = statsData?.credits;
-
-	const statusConfigs: Record<ServiceStatus, { label: string; cssClass: string }> = {
-		connected: { label: 'Service Online', cssClass: 'service-ok' },
-		degraded: { label: 'Degraded', cssClass: 'service-degraded' },
-		disconnected: { label: 'No Connection', cssClass: 'service-error' },
-		glitch: { label: 'Server Glitch', cssClass: 'service-degraded' }
-	};
-	const cfg = statusConfigs[serviceStatus];
-
-	const statusCard = `
-		<a class="quota-card status-card clickable-card" href="https://statusgator.com/services/google-antigravity">
-			<div class="service-status-indicator ${cfg.cssClass}">●</div>
-			<div class="status-label">${cfg.label}</div>
-			<div class="card-action-overlay">
-				<span>Status</span>
-				<svg width="14" height="14" viewBox="0 0 16 16"><path fill="currentColor" d="M8.2 3.2l5.4 5.4-5.4 5.4-.7-.7 4.2-4.2H2v-1h9.7L7.5 3.9l.7-.7z"/></svg>
-			</div>
-		</a>`;
 
 	let planCard = '';
 	if (planDisplay) {
@@ -1023,7 +1149,7 @@ function buildTopRow(statsData: UsageStatistics | null, serviceStatus: ServiceSt
 		const isLow = credits.creditAmount <= credits.minimumCreditAmountForUsage;
 		const colorClass = isLow ? 'credits-low' : 'credits-ok';
 		creditsCard = `
-			<div class="quota-card clickable-card" onclick="openAntigravitySettings()">
+			<div class="quota-card clickable-card" role="button" tabindex="0" data-action="openModels">
 				<div class="credits-info">
 					<span class="credits-label">Extra Credits</span>
 					<span class="credits-amount ${colorClass}">${credits.creditAmount.toLocaleString()}</span>
@@ -1035,7 +1161,88 @@ function buildTopRow(statsData: UsageStatistics | null, serviceStatus: ServiceSt
 			</div>`;
 	}
 
-	return `<div class="top-row">${statusCard}${planCard}${creditsCard}</div>`;
+	return `<div class="top-row">${planCard}${creditsCard}</div>`;
+}
+
+function buildInitialLoadingScreen(): string {
+	return `
+		<div class="panel-loading-screen" role="status" aria-live="polite">
+			<div class="panel-loading-spinner" aria-hidden="true"></div>
+			<div>
+				<div class="panel-loading-title">Connecting to Antigravity</div>
+				<div class="panel-loading-subtitle">Finding the local usage API and loading quota data.</div>
+			</div>
+		</div>`;
+}
+
+function getPublicHealthColor(status: 0 | 1 | 2): string {
+	if (status === 2) { return '#fd5e53'; }
+	if (status === 1) { return '#ffa133'; }
+	return '#21bf73';
+}
+
+function getPublicHealthLabel(status: 0 | 1 | 2): string {
+	if (status === 2) { return 'Likely outage'; }
+	if (status === 1) { return 'Possible outage'; }
+	return 'Service up';
+}
+
+function buildPublicHealthChart(publicServiceStatus: PublicServiceStatus | null, locale?: string): string {
+	const points = publicServiceStatus?.healthPoints;
+	if (!points?.length) { return ''; }
+
+	const width = 320;
+	const height = 126;
+	const padLeft = 28;
+	const padRight = 4;
+	const padTop = 8;
+	const padBottom = 10;
+	const chartWidth = width - padLeft - padRight;
+	const chartHeight = height - padTop - padBottom;
+	const maxUpValue = Math.max(1, ...points.filter(point => point.status === 0).map(point => point.value));
+	const rawMax = Math.max(1, ...points.map(point => point.value));
+	const chartMax = Math.ceil(Math.max(maxUpValue * 4, rawMax * 1.1));
+	const barGap = 1;
+	const barWidth = Math.max(1, (chartWidth / points.length) - barGap);
+	const ticks = [0, Math.round(chartMax / 2), chartMax];
+
+	const gridHtml = ticks.map(tick => {
+		const y = padTop + chartHeight - (tick / chartMax) * chartHeight;
+		return `
+			<line x1="${padLeft}" y1="${y.toFixed(1)}" x2="${width - padRight}" y2="${y.toFixed(1)}" stroke="var(--table-border)" stroke-width="0.8"/>
+			<text x="${padLeft - 6}" y="${(y + 3).toFixed(1)}" text-anchor="end" fill="var(--text-muted)" font-size="9">${tick.toLocaleString()}</text>`;
+	}).join('');
+
+	const barsHtml = points.map((point, index) => {
+		const x = padLeft + index * (chartWidth / points.length);
+		const barHeight = Math.max(1, (point.value / chartMax) * chartHeight);
+		const y = padTop + chartHeight - barHeight;
+		const label = `${formatFullTimestamp(point.timestamp, locale)}: ${getPublicHealthLabel(point.status)} (${point.value.toLocaleString()})`;
+		return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${barHeight.toFixed(1)}" fill="${getPublicHealthColor(point.status)}"><title>${escapeHtml(label)}</title></rect>`;
+	}).join('');
+
+	return `
+		<div class="public-health-section">
+			<div class="public-health-header">
+				<div class="public-health-title">Service health</div>
+				<div class="public-health-time">24h</div>
+			</div>
+			<div class="public-health-chart">
+				<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Google Antigravity service health over the last 24 hours">
+					${gridHtml}
+					${barsHtml}
+				</svg>
+				<a class="public-health-chart-overlay card-action-overlay" href="${escapeHtml(STATUSGATOR_SERVICE_URL)}">
+					<span>Public status</span>
+					<svg width="14" height="14" viewBox="0 0 16 16"><path fill="currentColor" d="M8.2 3.2l5.4 5.4-5.4 5.4-.7-.7 4.2-4.2H2v-1h9.7L7.5 3.9l.7-.7z"/></svg>
+				</a>
+			</div>
+			<div class="public-health-legend">
+				<span><i class="health-dot health-up"></i>Service up</span>
+				<span><i class="health-dot health-warn"></i>Possible outage</span>
+				<span><i class="health-dot health-down"></i>Likely outage</span>
+			</div>
+		</div>`;
 }
 
 function getHeatmapLevel(consumed: number, maxConsumed: number): number {
@@ -1121,11 +1328,11 @@ function buildHeatmapSection(dailyUsage: ReadonlyArray<DailyUsageEntry>, targetM
 			<div class="heatmap-header">
 				<span class="heatmap-title">Usage Activity</span>
 				<div class="heatmap-nav">
-					<button class="nav-btn" onclick="prevMonth()">
+					<button class="nav-btn" data-action="prevMonth">
 						<svg width="16" height="16" viewBox="0 0 16 16"><path fill="currentColor" d="M11 1.5L4.5 8l6.5 6.5l.707-.707L5.914 8l5.793-5.793L11 1.5z"/></svg>
 					</button>
 					<span class="heatmap-month-title">${escapeHtml(monthName)} ${targetYear}</span>
-					<button class="nav-btn" onclick="nextMonth()">
+					<button class="nav-btn" data-action="nextMonth">
 						<svg width="16" height="16" viewBox="0 0 16 16"><path fill="currentColor" d="M5 1.5L11.5 8L5 14.5l-.707-.707L10.086 8L4.293 2.207L5 1.5z"/></svg>
 					</button>
 				</div>
@@ -1148,23 +1355,19 @@ function buildHeatmapSection(dailyUsage: ReadonlyArray<DailyUsageEntry>, targetM
 		</div>`;
 }
 
-function buildPanelHtml(statsData: UsageStatistics | null, history: QuotaHistory, heatmapMonth: number, heatmapYear: number, locale?: string, serviceStatus: ServiceStatus = 'disconnected', refreshInterval: number = 60): string {
-	const topRow = buildTopRow(statsData, serviceStatus);
+function buildPanelHtml(statsData: UsageStatistics | null, history: QuotaHistory, heatmapMonth: number, heatmapYear: number, locale?: string, serviceStatus: ServiceStatus = 'disconnected', refreshInterval: number = 60, publicServiceStatus: PublicServiceStatus | null = null): string {
+	const nonce = crypto.randomBytes(16).toString('base64');
+	const showInitialLoading = serviceStatus === 'loading' && !statsData;
+	const topRow = buildTopRow(statsData);
+	const publicHealth = buildPublicHealthChart(publicServiceStatus, locale);
 	const heatmap = buildHeatmapSection(history.getDailyUsage(), heatmapMonth, heatmapYear, locale);
 	const quotaCards = buildQuotaCards(statsData, history, locale);
-
-	return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
-<style>
-${getPanelStyles()}
-</style>
-</head>
-<body>
+	const bodyClass = showInitialLoading ? ' class="panel-loading-body"' : '';
+	const bodyContent = showInitialLoading
+		? buildInitialLoadingScreen()
+		: `
 	${topRow}
+	${publicHealth}
 	<div class="section">
 		<div class="quota-grid">${quotaCards}</div>
 	</div>
@@ -1172,8 +1375,21 @@ ${getPanelStyles()}
 	<div class="panel-footer">
 		<span id="lastUpdated">Updated just now</span>
 		<span class="refresh-interval-info">• ${refreshInterval > 0 ? `Auto: ${refreshInterval}s` : 'Auto: Off'}</span>
-	</div>
-<script>
+	</div>`;
+
+	return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
+<style>
+${getPanelStyles()}
+</style>
+</head>
+<body${bodyClass}>
+	${bodyContent}
+<script nonce="${nonce}">
 const vscode = acquireVsCodeApi();
 const updatedAt = ${Date.now()};
 function updateFooter() {
@@ -1215,6 +1431,33 @@ function clearCatHistory(event, el) {
 		category: el.getAttribute('data-category')
 	});
 }
+
+document.querySelectorAll('[data-action="openModels"]').forEach(el => {
+	el.addEventListener('click', openAntigravitySettings);
+	el.addEventListener('keydown', (event) => {
+		if (event.key === 'Enter' || event.key === ' ') {
+			event.preventDefault();
+			openAntigravitySettings();
+		}
+	});
+});
+
+document.querySelectorAll('[data-action="prevMonth"]').forEach(el => {
+	el.addEventListener('click', prevMonth);
+});
+
+document.querySelectorAll('[data-action="nextMonth"]').forEach(el => {
+	el.addEventListener('click', nextMonth);
+});
+
+document.querySelectorAll('.history-clear-row').forEach(row => {
+	row.addEventListener('click', (event) => clearCatHistory(event, row));
+	row.addEventListener('keydown', (event) => {
+		if (event.key === 'Enter' || event.key === ' ') {
+			clearCatHistory(event, row);
+		}
+	});
+});
 
 function closeDetails(d, syncCollapse = false) {
 	const hl = d.querySelector('.history-list');

@@ -51,7 +51,25 @@ export type ResetTimeDisplayMode = 'relative' | 'absolute' | 'both';
 
 export type AbsoluteTimeFormat = '24h' | '12h';
 
-export type ServiceStatus = 'connected' | 'degraded' | 'disconnected' | 'glitch';
+export type ServiceStatus = 'loading' | 'connected' | 'degraded' | 'disconnected' | 'glitch';
+
+export type PublicServiceState = 'up' | 'warn' | 'down' | 'unknown';
+
+export interface PublicServiceHealthPoint {
+  timestamp: number;
+  value: number;
+  status: 0 | 1 | 2;
+}
+
+export interface PublicServiceStatus {
+  state: PublicServiceState;
+  label: string;
+  details?: string;
+  checkedAt: number;
+  url: string;
+  chartEndsAt?: number;
+  healthPoints?: PublicServiceHealthPoint[];
+}
 
 export interface QuotaInfo {
   remainingFraction?: number | string;
@@ -72,12 +90,12 @@ export interface ServerUserStatusResponse {
       };
     };
     userTier?: {
-      name: string;
-      id: string;
+      name?: string;
+      id?: string;
       availableCredits?: {
         creditType?: string;
-        creditAmount?: string;
-        minimumCreditAmountForUsage?: string;
+        creditAmount?: number | string;
+        minimumCreditAmountForUsage?: number | string;
       }[];
     };
     plan?: string;

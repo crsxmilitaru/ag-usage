@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.9.0] - 2026-07-06
+
+- Added Google Antigravity public health status from StatusGator (`enablePublicStatus` to toggle)
+- Added a dashboard loading state while connecting to the local Antigravity usage API
+- Improved quota parsing, plan/credit detection and dashboard security
+- Fixed history clearing and initial daily usage recording
+- Added automated GitHub releases
+
 ## [1.8.0] - 2026-06-23
 
 - Added multi-window quota support (5-hour and weekly buckets) via the new quota summary API

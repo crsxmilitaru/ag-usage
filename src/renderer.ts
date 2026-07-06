@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { CATEGORY_ORDER, EXTENSION_TITLE, OPEN_PANEL_COMMAND, SETTINGS_COMMAND, SVG_CONFIG, THEME_COLORS } from './constants';
+import { BUCKET_OPACITY, CATEGORY_ORDER, EXTENSION_TITLE, OPEN_PANEL_COMMAND, SETTINGS_COMMAND, SVG_CONFIG, THEME_COLORS } from './constants';
 import { formatQuotaPercent, formatRemainingTimeSeparate, formatStatusBarText } from './formatter';
 import { QuotaGroup, UsageStatistics } from './types';
 import { escapeHtml, getProgressStopIndex, isNotStartedQuota, isWeeklyLimitReached, sortQuotaBuckets } from './utils';
@@ -21,13 +21,12 @@ const CARD_METRICS = {
 	barY: 120,
 	barHeight: 5,
 	barRadius: 2.5,
-	segments: 5,
-	segmentGap: 3
+	bucketRowHeight: 50,
+	bucketRowGap: 8
 };
 
 const FONT_SIZE = {
 	xs: 10,
-	sm: 12,
 	md: 14,
 	lg: 16,
 	xl: 18,
@@ -138,35 +137,36 @@ function buildCategorySvg(options: CategorySvgOptions): string {
 		sortedBuckets.slice(0, 2).forEach((bucket, index) => {
 			const bucketPercentage = formatQuotaPercent(bucket.quota);
 			const bucketColor = getBarColor(bucketPercentage, colors);
-			const bucketLabel = bucket.window.toLowerCase() === 'weekly' ? 'Weekly' : bucket.window.toLowerCase() === '5h' ? '5h' : bucket.displayName;
-			
-			const isWeekly = bucketLabel.toLowerCase() === 'weekly';
-			
+			const isWeekly = bucket.window.toLowerCase() === 'weekly';
+			const bucketLabel = isWeekly ? 'Weekly' : bucket.window.toLowerCase() === '5h' ? '5h' : bucket.displayName;
+
+			const { bucketRowHeight, bucketRowGap } = CARD_METRICS;
 			const boxX = cardX + 6;
 			const boxW = cardW - 12;
-			const boxY = 32 + index * 62;
-			const boxH = 48;
-			
+			const boxY = 32 + index * (bucketRowHeight + bucketRowGap);
+
 			const labelY = boxY + 13;
 			const percentY = boxY + 28;
 			const barY = boxY + 39;
 			const barHeight = 5;
-			
-			const itemX = isWeekly ? contentX : contentX + 4;
-			const itemXEnd = isWeekly ? contentXEnd : contentXEnd - 4;
-			const itemW = isWeekly ? contentW : contentW - 8;
-			
-			if (!isWeekly) {
-				svg += `
-		<rect x="${boxX}" y="${boxY}" rx="6" width="${boxW}" height="${boxH}" fill="${colors.text}" fill-opacity="0.04" stroke="${colors.cardBorder}" stroke-width="0.5"/>`;
-			}
-			
+
+			const itemInset = 4;
+			const itemX = contentX + itemInset;
+			const itemXEnd = contentXEnd - itemInset;
+			const itemW = contentW - (itemInset * 2);
+
+			const fillOpacity = isWeekly ? BUCKET_OPACITY.weeklyBg : BUCKET_OPACITY.defaultBg;
+			const strokeOpacity = isWeekly ? BUCKET_OPACITY.weeklyBorder : BUCKET_OPACITY.defaultBorder;
+
+			svg += `
+		<rect x="${boxX}" y="${boxY}" rx="6" width="${boxW}" height="${bucketRowHeight}" fill="${colors.text}" fill-opacity="${fillOpacity}" stroke="${colors.cardBorder}" stroke-opacity="${strokeOpacity}" stroke-width="1"/>`;
+
 			svg += `
 		<text x="${itemX}" y="${percentY}" fill="${bucketColor}" ${textStyleStart} font-size="${FONT_SIZE.xl}" font-weight="800">${bucketPercentage}%</text>`;
-			
+
 			svg += `
-		<text x="${itemXEnd}" y="${labelY}" fill="${colors.text}" fill-opacity="${OPACITY.high}" ${textStyleEnd} font-size="${FONT_SIZE.sm}" font-weight="700">${escapeHtml(bucketLabel)}</text>`;
-			
+		<text x="${itemXEnd}" y="${labelY}" fill="${colors.text}" fill-opacity="${OPACITY.medium}" ${textStyleEnd} font-size="11" font-weight="650">${escapeHtml(bucketLabel)}</text>`;
+
 			if (bucket.resetTime) {
 				const bucketResetMs = bucket.resetTime - Date.now();
 				let resetSvg: string;
@@ -176,18 +176,18 @@ function buildCategorySvg(options: CategorySvgOptions): string {
 					const timer = formatRemainingTimeSeparate(bucket.resetTime);
 					const relText = escapeHtml(timer.relativeText);
 					const absText = timer.absoluteText ? escapeHtml(timer.absoluteText) : null;
-					
+
 					if (absText) {
-						resetSvg = `<tspan fill-opacity="${OPACITY.high}">${relText}</tspan><tspan fill-opacity="${OPACITY.low}"> (${absText})</tspan>`;
+						resetSvg = `<tspan fill-opacity="${OPACITY.high}">${relText}</tspan><tspan fill-opacity="${OPACITY.medium}"> (${absText})</tspan>`;
 					} else {
 						resetSvg = `<tspan fill-opacity="${OPACITY.high}">${relText}</tspan>`;
 					}
 				}
-				
+
 				svg += `
-		<text x="${itemXEnd}" y="${percentY}" fill="${colors.text}" ${textStyleEnd} font-size="${FONT_SIZE.xs}" font-weight="500">${resetSvg}</text>`;
+		<text x="${itemXEnd}" y="${percentY}" fill="${colors.text}" ${textStyleEnd} font-size="11" font-weight="600">${resetSvg}</text>`;
 			}
-			
+
 			svg += '\n\t\t' + buildProgressBarSvg(itemX, itemW, bucketPercentage, bucketColor, colors, barY, barHeight);
 		});
 		return svg;
@@ -282,12 +282,11 @@ export function renderStats(data: UsageStatistics): { text: string; tooltip: vsc
 
 	const { groups } = data;
 	const categories = CATEGORY_ORDER.filter(category => groups[category]);
-	const plan = data.plan?.toLowerCase() ?? 'free';
-	const weeklyPlanLabel = `${data.plan ?? ''} ${data.planName ?? ''}`.trim() || plan;
+	const weeklyPlanLabel = `${data.plan ?? ''} ${data.planName ?? ''}`.trim() || undefined;
 
 	const svgContent = buildSvgContent(categories, groups, weeklyPlanLabel);
 
-	const rawPlanDisplay = data.planName ?? plan.replace(/\b\w/g, c => c.toUpperCase());
+	const rawPlanDisplay = data.planName ?? data.plan ?? 'Plan unavailable';
 	const planDisplay = escapeHtml(rawPlanDisplay);
 
 	const tooltip = new vscode.MarkdownString();

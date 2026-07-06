@@ -61,6 +61,7 @@ export class QuotaHistory {
 
   clearCategory(category: string): void {
     this.entries = this.entries.filter(e => e.category !== category);
+    this.dailyUsage = this.dailyUsage.filter(e => e.category !== category);
     delete this.previousQuotas[category];
   }
 
@@ -131,7 +132,8 @@ export class QuotaHistory {
 
           if (isInitial) {
             const consumed = 1 - group.quota;
-            const hasExistingUsage = this.dailyUsage.some(e => e.category === category);
+            const today = formatLocalDate(new Date());
+            const hasExistingUsage = this.dailyUsage.some(e => e.category === category && e.date === today);
             if (consumed > 0 && !hasExistingUsage) {
               this.recordDailyConsumption(category, consumed);
             }

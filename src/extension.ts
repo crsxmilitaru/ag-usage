@@ -12,6 +12,7 @@ import {
 	MIN_DISPLAY_DELAY_MS,
 	MS_PER_SECOND,
 	OPEN_PANEL_COMMAND,
+	PUBLIC_STATUS_REFRESH_INTERVAL_MS,
 	REFRESH_COMMAND,
 	SETTINGS_COMMAND,
 	STATUS_BAR_PRIORITY,
@@ -22,7 +23,8 @@ import { QuotaHistory, QuotaHistoryEntry } from './history';
 import { NotificationManager } from './notifications';
 import { UsageViewProvider } from './panel';
 import { renderStats } from './renderer';
-import { CachedConnection, ServiceStatus, UsageStatistics } from './types';
+import { fetchStatusGatorStatus } from './statusgator';
+import { CachedConnection, PublicServiceStatus, ServiceStatus, UsageStatistics } from './types';
 import { getErrorMessage, isLikelyServerGlitch } from './utils';
 
 async function loadMockUsageStatistics(): Promise<UsageStatistics> {
@@ -51,12 +53,14 @@ class ExtensionState implements vscode.Disposable {
 	cachedConnection: CachedConnection | null = null;
 	lastStatsData: UsageStatistics | null = null;
 	refreshPromise: Promise<void> | null = null;
+	refreshIncludesPublicStatus = false;
 	lastRefreshSucceeded = false;
 	consecutiveFailures = 0;
 	isActive = false;
 	notificationManager = new NotificationManager();
 	refreshLoopGeneration = 0;
-	serviceStatus: ServiceStatus = 'disconnected';
+	serviceStatus: ServiceStatus = 'loading';
+	publicServiceStatus: PublicServiceStatus | null = null;
 	quotaHistory: QuotaHistory;
 	usageViewProvider = new UsageViewProvider();
 	readonly context: vscode.ExtensionContext;
@@ -113,9 +117,11 @@ class ExtensionState implements vscode.Disposable {
 		this.cachedConnection = null;
 		this.lastStatsData = null;
 		this.refreshPromise = null;
+		this.refreshIncludesPublicStatus = false;
 		this.lastRefreshSucceeded = false;
 		this.consecutiveFailures = 0;
 		this.serviceStatus = 'disconnected';
+		this.publicServiceStatus = null;
 		this.notificationManager.clear();
 		this.quotaHistory.clear();
 	}
@@ -152,6 +158,10 @@ export function activate(context: vscode.ExtensionContext) {
 	}
 
 	state = new ExtensionState(context);
+	state.usageViewProvider.onDidBecomeVisible = () => {
+		refresh(true, { includePublicStatus: true }).catch(err => state?.log('Refresh after opening panel failed', err));
+	};
+	state.usageViewProvider.update(state.lastStatsData, state.quotaHistory, state.serviceStatus, state.publicServiceStatus);
 	context.subscriptions.push(state);
 
 	context.subscriptions.push(
@@ -160,7 +170,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 	context.subscriptions.push(
 		vscode.commands.registerCommand(REFRESH_COMMAND, async () => {
-			await refresh(true);
+			await refresh(true, { includePublicStatus: true });
 			if (state?.lastRefreshSucceeded) {
 				startAutoRefresh(false);
 			}
@@ -222,12 +232,22 @@ export function activate(context: vscode.ExtensionContext) {
 				state.context.globalState.update('quotaHistory', state.quotaHistory.getRawEntries());
 				state.context.globalState.update('quotaDailyUsage', state.quotaHistory.getRawDailyUsage());
 				if (state.lastStatsData) {
-					state.usageViewProvider.update(state.lastStatsData, state.quotaHistory, state.serviceStatus);
+					state.usageViewProvider.update(state.lastStatsData, state.quotaHistory, state.serviceStatus, state.publicServiceStatus);
 				}
 			}
 
 			if ((e.affectsConfiguration(`${CONFIG_NAMESPACE}.notifyOnFullQuota`) || e.affectsConfiguration(`${CONFIG_NAMESPACE}.lowQuotaNotificationThreshold`)) && state.lastStatsData) {
 				state.notificationManager.checkQuotaNotifications(state.lastStatsData, state.lastStatsData);
+			}
+
+			if (e.affectsConfiguration(`${CONFIG_NAMESPACE}.enablePublicStatus`)) {
+				const isEnabled = vscode.workspace.getConfiguration(CONFIG_NAMESPACE).get<boolean>('enablePublicStatus', true);
+				if (!isEnabled) {
+					state.publicServiceStatus = null;
+					state.usageViewProvider.update(state.lastStatsData, state.quotaHistory, state.serviceStatus, state.publicServiceStatus);
+				} else {
+					refresh(false, { includePublicStatus: true }).catch(err => state?.log('Public status refresh after enabling failed', err));
+				}
 			}
 
 			if (e.affectsConfiguration(`${CONFIG_NAMESPACE}.refreshInterval`)) {
@@ -287,7 +307,7 @@ function startAutoRefresh(showFirst: boolean = false) {
 		if (!state || !state.isActive || state.refreshLoopGeneration !== generation) { return; }
 
 		try {
-			await refresh(show);
+			await refresh(show, { includePublicStatus: true });
 		} catch (error) {
 			state?.log('Auto-refresh failed', error);
 		}
@@ -343,20 +363,43 @@ function rerenderFromCache(force: boolean = false): boolean {
 	}
 }
 
-async function refresh(showRefreshing: boolean) {
+interface RefreshOptions {
+	includePublicStatus?: boolean;
+}
+
+async function refresh(showRefreshing: boolean, options: RefreshOptions = {}) {
 	if (!state || !state.isActive) { return; }
 
+	const includePublicStatus = options.includePublicStatus === true;
+	const needsPublicStatus = includePublicStatus && (state.publicServiceStatus === null
+		|| Date.now() - state.publicServiceStatus.checkedAt >= PUBLIC_STATUS_REFRESH_INTERVAL_MS);
 	if (state.refreshPromise) {
+		const runningIncludesPublicStatus = state.refreshIncludesPublicStatus;
 		if (showRefreshing) {
 			state.statusBarItem.text = state.cachedConnection ? '$(sync~spin) Refreshing...' : '$(sync~spin) Connecting...';
 		}
 		await state.refreshPromise;
+		if (needsPublicStatus && !runningIncludesPublicStatus && state?.isActive) {
+			await refresh(showRefreshing, { includePublicStatus: true });
+		}
 		return;
 	}
 
 	const currentState = state;
+	currentState.refreshIncludesPublicStatus = needsPublicStatus;
+	currentState.serviceStatus = 'loading';
+	currentState.usageViewProvider.update(currentState.lastStatsData, currentState.quotaHistory, currentState.serviceStatus, currentState.publicServiceStatus);
 
-	const applyStatsUpdate = (statsData: UsageStatistics, logMessage: string) => {
+	const refreshPublicStatus = async (): Promise<PublicServiceStatus | null> => {
+		try {
+			return await fetchStatusGatorStatus();
+		} catch (error) {
+			currentState.log('StatusGator status refresh failed', error);
+			return currentState.publicServiceStatus;
+		}
+	};
+
+	const applyStatsUpdate = (statsData: UsageStatistics, logMessage: string, publicStatus: PublicServiceStatus | null) => {
 		const previousStatsData = currentState.lastStatsData;
 		const serverGlitch = isLikelyServerGlitch(statsData.groups);
 
@@ -370,6 +413,7 @@ async function refresh(showRefreshing: boolean) {
 			currentState.serviceStatus = Object.keys(statsData.groups).length === 0 ? 'degraded' : 'connected';
 			currentState.quotaHistory.recordSnapshot(statsData.groups);
 		}
+		currentState.publicServiceStatus = publicStatus;
 
 		const dataToDisplay = serverGlitch && previousStatsData ? previousStatsData : statsData;
 		const result = renderStats(dataToDisplay);
@@ -382,7 +426,7 @@ async function refresh(showRefreshing: boolean) {
 			currentState.notificationManager.checkQuotaNotifications(statsData, previousStatsData);
 		}
 
-		currentState.usageViewProvider.update(dataToDisplay, currentState.quotaHistory, currentState.serviceStatus);
+		currentState.usageViewProvider.update(dataToDisplay, currentState.quotaHistory, currentState.serviceStatus, currentState.publicServiceStatus);
 		currentState.context.globalState.update('quotaHistory', currentState.quotaHistory.getRawEntries());
 		currentState.context.globalState.update('quotaDailyUsage', currentState.quotaHistory.getRawDailyUsage());
 
@@ -395,6 +439,10 @@ async function refresh(showRefreshing: boolean) {
 			currentState.statusBarItem.text = currentState.cachedConnection ? '$(sync~spin) Refreshing...' : '$(sync~spin) Connecting...';
 		}
 		const minDelay = showRefreshing ? new Promise(r => setTimeout(r, MIN_DISPLAY_DELAY_MS)) : Promise.resolve();
+		const publicStatusEnabled = vscode.workspace.getConfiguration(CONFIG_NAMESPACE).get<boolean>('enablePublicStatus', true);
+		const publicStatusPromise = !needsPublicStatus || USE_MOCK_DATA || !publicStatusEnabled
+			? Promise.resolve(currentState.publicServiceStatus)
+			: refreshPublicStatus();
 
 		try {
 			let statsData: UsageStatistics;
@@ -403,16 +451,16 @@ async function refresh(showRefreshing: boolean) {
 				await minDelay;
 				if (!currentState.isActive) { return; }
 				statsData = await loadMockUsageStatistics();
-				applyStatsUpdate(statsData, 'Refresh completed using mock data');
+				applyStatsUpdate(statsData, 'Refresh completed using mock data', currentState.publicServiceStatus);
 				return;
 			}
 
 			const connection = currentState.cachedConnection;
 			if (connection && isCacheValid(connection)) {
 				try {
-					[statsData] = await Promise.all([fetchStats(connection.port, connection.csrfToken), minDelay]);
+					const [fetchedStatsData, publicStatus] = await Promise.all([fetchStats(connection.port, connection.csrfToken), publicStatusPromise, minDelay]);
 					if (!currentState.isActive) { return; }
-					applyStatsUpdate(statsData, 'Refresh completed using cached connection');
+					applyStatsUpdate(fetchedStatsData, 'Refresh completed using cached connection', publicStatus);
 					return;
 				} catch (error) {
 					currentState.log('Cached connection failed, attempting reconnection', error);
@@ -443,21 +491,23 @@ async function refresh(showRefreshing: boolean) {
 
 			currentState.cachedConnection = { port, csrfToken, timestamp: Date.now() };
 
-			[statsData] = await Promise.all([fetchStats(port, csrfToken), minDelay]);
+			const [fetchedStatsData, publicStatus] = await Promise.all([fetchStats(port, csrfToken), publicStatusPromise, minDelay]);
 			if (!currentState.isActive) { return; }
-			applyStatsUpdate(statsData, 'Refresh completed successfully');
+			applyStatsUpdate(fetchedStatsData, 'Refresh completed successfully', publicStatus);
 		} catch (error) {
 			if (!currentState.isActive) { return; }
 			currentState.lastRefreshSucceeded = false;
 			currentState.serviceStatus = 'disconnected';
 			await minDelay;
+			currentState.publicServiceStatus = await publicStatusPromise;
+			if (!currentState.isActive) { return; }
 			const err = error instanceof Error ? error : new Error(String(error));
 			currentState.log('Refresh failed', err);
 			currentState.statusBarItem.text = `$(error) ${EXTENSION_TITLE}`;
 			currentState.statusBarItem.tooltip = createErrorTooltip(err);
 			currentState.statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
 			currentState.statusBarItem.color = new vscode.ThemeColor('statusBarItem.warningForeground');
-			currentState.usageViewProvider.update(currentState.lastStatsData, currentState.quotaHistory, currentState.serviceStatus);
+			currentState.usageViewProvider.update(currentState.lastStatsData, currentState.quotaHistory, currentState.serviceStatus, currentState.publicServiceStatus);
 		}
 	};
 
@@ -469,6 +519,7 @@ async function refresh(showRefreshing: boolean) {
 	} finally {
 		if (currentState.refreshPromise === execution) {
 			currentState.refreshPromise = null;
+			currentState.refreshIncludesPublicStatus = false;
 		}
 	}
 }

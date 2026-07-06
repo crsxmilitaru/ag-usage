@@ -26,7 +26,7 @@
 
 - **Webview panel**: Includes a dashboard showing your current quotas, Extra Credits, a complete history log of all usage changes, a usage activity heatmap with monthly navigation, and a button to open the official Models page.
 
-- **Status bar integration**: Displays a status bar item showing the overall average usage percentage of your AI models.
+- **Status bar integration**: Displays a configurable status bar item showing your model quota usage.
 
 - **Auto-refresh**: Usage data is automatically updated every 60 seconds by default, but can be configured.
 
@@ -37,6 +37,8 @@
 - **Quota reset timer**: Each model category displays the time remaining until quota resets, highlighted in green when less than 10 minutes remains. Time is displayed only when the Antigravity quota reset timer is triggered (first use of the AI model after a 100% usage).
 
 - **Cross-platform**: Fully compatible with **Windows**, **macOS**, and **Linux**.
+
+- **Public service status**: Shows StatusGator public health information for Google Antigravity alongside the local connection status.
 
 ## 📖 Usage
 
@@ -77,7 +79,9 @@
 
 - `ag-usage.enableHistoryTracking`: Enable tracking of quota usage history over time. Default is `true`.
 
-- `ag-usage.maxHistoryItems`: Maximum number of history items to persist per group. Default is `15`.
+- `ag-usage.enablePublicStatus`: Fetch public Google Antigravity service health from StatusGator. When disabled, the dashboard only checks the local usage API. Default is `true`.
+
+- `ag-usage.maxHistoryItems`: Maximum number of history items to persist per group. Default is `50`.
 
 ## ⚙️ Commands
 
@@ -91,8 +95,8 @@
 
 ## 🔒 Security & Privacy
 
-- **Local-only communication:** The extension only talks to your local Antigravity process over localhost.
-- **No third-party endpoints:** It does not send requests to external APIs, analytics services, or remote servers.
+- **Local quota communication:** The extension reads quota data from your local Antigravity process over localhost.
+- **Public status check:** The dashboard fetches public Google Antigravity service health from StatusGator. Disable it with the `ag-usage.enablePublicStatus` setting.
 - **Limited local persistence:** It stores quota history metadata locally in VS Code global state (category, quota delta, timestamps, reset time) to power the history panel.
 
 ## 📝 Notes

@@ -26,6 +26,8 @@ export const MAX_FAILED_REFRESH_DELAY_MS = 60000;
 export const MAX_STATUS_TEXT_LENGTH = 120;
 export const MAX_PORT_VALIDATION_ATTEMPTS = 2;
 export const HEATMAP_MAX_DAYS = 180;
+export const STATUSGATOR_SERVICE_URL = 'https://statusgator.com/services/google-antigravity';
+export const PUBLIC_STATUS_REFRESH_INTERVAL_MS = 5 * MS_PER_MINUTE;
 
 export const PROCESS_IDENTIFIERS = {
   LANGUAGE_SERVER: 'language_server',
@@ -84,4 +86,11 @@ export const DISPLAY_MODE_TO_CATEGORY: Record<string, string> = {
 export const MODEL_KEYWORDS = {
   flash: 'flash',
   gemini: 'gemini'
+};
+
+export const BUCKET_OPACITY = {
+  defaultBg: 0.04,
+  weeklyBg: 0.015,
+  defaultBorder: 1.0,
+  weeklyBorder: 0.4
 };

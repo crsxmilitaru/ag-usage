@@ -40,12 +40,15 @@ export async function findAntigravityProcess(): Promise<ProcessInfo> {
   const strategy = getPlatformStrategy();
   const processes = await strategy.getProcesses();
 
-  const matchingProcesses = processes.filter((p: ProcessInfo) =>
-    p.cmd.includes(PROCESS_IDENTIFIERS.ANTIGRAVITY) || p.cmd.includes(PROCESS_IDENTIFIERS.CSRF_TOKEN)
-  );
+  const matchingProcesses = processes.filter((p: ProcessInfo) => {
+    const cmd = p.cmd.toLowerCase();
+    return extractCsrfToken(p.cmd) !== undefined &&
+      (cmd.includes(PROCESS_IDENTIFIERS.ANTIGRAVITY.toLowerCase()) ||
+        cmd.includes(PROCESS_IDENTIFIERS.CSRF_TOKEN.toLowerCase()));
+  });
 
   if (matchingProcesses.length === 0) {
-    throw new Error('Antigravity process not found. Make sure Antigravity is running.');
+    throw new Error('Antigravity process with CSRF token not found. Make sure Antigravity is running.');
   }
 
   const scoreProcess = (process: ProcessInfo): number => {
@@ -315,9 +318,18 @@ function parseResetTime(value: string | number | undefined): number | null {
   return Number.isFinite(resetTimestamp) ? resetTimestamp : null;
 }
 
-function parseQuotaFraction(value: number | string | undefined): number {
+function parseQuotaFraction(value: number | string | undefined): number | null {
   const parsed = parseFloat(String(value ?? ''));
-  return Number.isFinite(parsed) ? Math.max(0, Math.min(1, parsed)) : 0;
+  return Number.isFinite(parsed) ? Math.max(0, Math.min(1, parsed)) : null;
+}
+
+function parseCreditAmount(value: number | string | undefined): number | undefined {
+  const parsed = typeof value === 'number' ? value : parseInt(String(value ?? ''), 10);
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : undefined;
+}
+
+function firstNonEmptyString(...values: Array<string | undefined>): string | undefined {
+  return values.find(value => typeof value === 'string' && value.trim().length > 0)?.trim();
 }
 
 function normalizeBucketDisplayName(window: string | undefined, displayName: string | undefined): string {
@@ -341,6 +353,9 @@ function parseQuotaSummary(response: ServerQuotaSummaryResponse): Record<string,
 
     for (const rawBucket of rawGroup.buckets ?? []) {
       const quota = parseQuotaFraction(rawBucket.remainingFraction);
+      if (quota === null) {
+        continue;
+      }
       buckets.push({
         window: rawBucket.window ?? rawBucket.bucketId ?? rawBucket.displayName ?? 'unknown',
         displayName: normalizeBucketDisplayName(rawBucket.window, rawBucket.displayName),
@@ -396,7 +411,7 @@ export async function fetchStats(port: number, csrfToken: string): Promise<Usage
 
   let response: ServerUserStatusResponse = {};
   try {
-    response = await makeRequest<ServerUserStatusResponse>(
+    response = await makeProtocolRequest<ServerUserStatusResponse>(
       port,
       csrfToken,
       API_ENDPOINTS.GET_USER_STATUS,
@@ -416,6 +431,9 @@ export async function fetchStats(port: number, csrfToken: string): Promise<Usage
       const { quotaInfo, label } = model;
 
       const modelQuota = parseQuotaFraction(quotaInfo?.remainingFraction);
+      if (modelQuota === null) {
+        continue;
+      }
       const category = determineCategory(label);
       const group = groups[category] ??= { quota: 1, resetTime: null };
 
@@ -430,14 +448,22 @@ export async function fetchStats(port: number, csrfToken: string): Promise<Usage
     }
   }
 
-  const plan = response.userStatus?.planStatus?.planInfo?.planName;
-  const planName = response.userStatus?.userTier?.name;
+  const plan = firstNonEmptyString(
+    response.userStatus?.planStatus?.planInfo?.planName,
+    response.userStatus?.plan,
+    response.plan
+  );
+  const planName = firstNonEmptyString(
+    response.userStatus?.userTier?.name,
+    response.userStatus?.planName,
+    response.planName
+  );
 
   const rawCredit = response.userStatus?.userTier?.availableCredits?.[0];
   const credits = rawCredit ? {
-    creditType: rawCredit.creditType ?? 'GOOGLE_ONE_AI',
-    creditAmount: parseInt(rawCredit.creditAmount ?? '0', 10) || 0,
-    minimumCreditAmountForUsage: parseInt(rawCredit.minimumCreditAmountForUsage ?? '0', 10) || 0,
+    creditType: rawCredit.creditType ?? 'PLAN_CREDITS',
+    creditAmount: parseCreditAmount(rawCredit.creditAmount) ?? 0,
+    minimumCreditAmountForUsage: parseCreditAmount(rawCredit.minimumCreditAmountForUsage) ?? 0,
   } : undefined;
 
   return { groups, plan, planName, credits };
