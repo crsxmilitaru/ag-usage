@@ -300,8 +300,31 @@ function buildCardHeaderHtml(category: string, group: QuotaGroup | undefined, lo
 	const pct = formatQuotaPercent(group.quota);
 	const colorClass = getBarColorClass(group.quota);
 
+	const modelsList = group.models?.filter(Boolean) ?? [];
+	let infoButtonHtml = '';
+	if (modelsList.length > 0) {
+		const modelsSummary = escapeHtml(modelsList.join(', '));
+		const tooltipContent = modelsList.map(m => `<div class="tooltip-model-item">${escapeHtml(m)}</div>`).join('');
+		infoButtonHtml = `
+			<div class="info-button-container">
+				<button type="button" class="info-button" aria-label="Models in this group: ${modelsSummary}" onclick="event.stopPropagation();">
+					<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+						<path fill-rule="evenodd" clip-rule="evenodd" d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM2.5 8a5.5 5.5 0 1 1 11 0 5.5 5.5 0 0 1-11 0zM8 4a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zM8 7a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5a.75.75 0 0 1 .75-.75z"/>
+					</svg>
+				</button>
+				<div role="tooltip" class="info-tooltip">
+					<div class="tooltip-title">Models in this group</div>
+					<div class="tooltip-models-list">
+						${tooltipContent}
+					</div>
+				</div>
+			</div>`;
+	}
+
 	if (group.buckets?.length) {
 		const orderedBuckets = sortQuotaBuckets(group.buckets);
+		const weeklyBucket = orderedBuckets.find(b => b.window.toLowerCase() === 'weekly');
+		const isWeeklyDepleted = weeklyBucket !== undefined && formatQuotaPercent(weeklyBucket.quota) === 0;
 
 		const bucketRows = orderedBuckets.map(bucket => {
 			const bucketPct = formatQuotaPercent(bucket.quota);
@@ -325,9 +348,10 @@ function buildCardHeaderHtml(category: string, group: QuotaGroup | undefined, lo
 			}
 
 			const bucketLabel = bucket.window.toLowerCase() === 'weekly' ? 'Weekly' : bucket.window.toLowerCase() === '5h' ? '5h' : bucket.displayName;
+			const isDisabled = !isWeeklyBucket && isWeeklyDepleted;
 
 			return `
-				<div class="quota-bucket-row ${isWeeklyBucket ? 'weekly-bucket' : 'five-hour-container'}">
+				<div class="quota-bucket-row ${isWeeklyBucket ? 'weekly-bucket' : 'five-hour-container'}${isDisabled ? ' disabled-bucket' : ''}">
 					<div class="quota-bucket-row-body">
 						<span class="bucket-value ${bucketColorClass}">${bucketPct}%</span>
 						<div class="bucket-meta">
@@ -348,6 +372,7 @@ function buildCardHeaderHtml(category: string, group: QuotaGroup | undefined, lo
 			<div class="quota-card-title">
 				<span class="quota-label">${escapeHtml(category)}</span>
 			</div>
+			${infoButtonHtml ? `<div class="quota-header-actions">${infoButtonHtml}</div>` : ''}
 		</div>
 		<div class="quota-card-inner-wrap">
 			<div class="quota-card-inner-content quota-buckets">
@@ -387,7 +412,10 @@ function buildCardHeaderHtml(category: string, group: QuotaGroup | undefined, lo
 			<div class="quota-card-title">
 				<span class="quota-label">${escapeHtml(category)}</span>
 			</div>
-			<div class="quota-value ${colorClass}">${pct}%</div>
+			<div class="quota-header-actions">
+				<span class="quota-value ${colorClass}">${pct}%</span>
+				${infoButtonHtml}
+			</div>
 		</div>
 		<div class="quota-card-inner-wrap">
 			<div class="quota-card-inner-content">
@@ -649,6 +677,9 @@ body {
 	margin: 0;
 	background: color-mix(in srgb, var(--text-primary) ${BUCKET_OPACITY.weeklyBg * 100}%, transparent);
 	border-color: color-mix(in srgb, var(--metric-row-border) ${BUCKET_OPACITY.weeklyBorder * 100}%, transparent);
+}
+.disabled-bucket {
+	opacity: 0.4;
 }
 
 .bucket-label {
@@ -1124,7 +1155,92 @@ body {
 	pointer-events: auto !important;
 	cursor: pointer;
 }
+.public-health-chart-overlay:focus {
+	outline: none;
+}
+.public-health-chart-overlay:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: -2px;
+}
 
+.quota-header-actions {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+.info-button-container {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+}
+.info-button {
+	background: transparent;
+	border: none;
+	color: var(--text-muted);
+	cursor: pointer;
+	padding: 4px;
+	border-radius: 4px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	transition: color 0.12s ease, background-color 0.12s ease;
+}
+.info-button:hover,
+.info-button:focus-visible {
+	color: var(--text-primary);
+	background-color: var(--table-row-hover);
+	outline: none;
+}
+.info-tooltip {
+	position: absolute;
+	right: 0;
+	top: calc(100% + 6px);
+	z-index: 100;
+	width: max-content;
+	max-width: 220px;
+	background: color-mix(in srgb, var(--vscode-editorWidget-background, var(--card-bg)) 95%, transparent);
+	border: 1px solid var(--card-border);
+	border-radius: var(--radius-sm);
+	padding: 8px 10px;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+	backdrop-filter: blur(8px);
+	visibility: hidden;
+	opacity: 0;
+	pointer-events: none;
+	transform: translateY(-4px);
+	transition: opacity 0.15s cubic-bezier(0.4, 0, 0.2, 1), transform 0.15s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.15s;
+}
+.info-button-container:hover .info-tooltip,
+.info-button-container:focus-within .info-tooltip {
+	visibility: visible;
+	opacity: 1;
+	transform: translateY(0);
+}
+.tooltip-title {
+	font-size: 10px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.5px;
+	color: var(--text-muted);
+	margin-bottom: 6px;
+	border-bottom: 1px solid var(--card-border);
+	padding-bottom: 4px;
+	text-align: left;
+}
+.tooltip-models-list {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	text-align: left;
+}
+.tooltip-model-item {
+	font-size: 11px;
+	font-weight: 500;
+	color: var(--text-primary);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
 `;
 }
 
@@ -1193,8 +1309,8 @@ function buildPublicHealthChart(publicServiceStatus: PublicServiceStatus | null,
 
 	const width = 320;
 	const height = 126;
-	const padLeft = 28;
-	const padRight = 4;
+	const padLeft = 6;
+	const padRight = 6;
 	const padTop = 8;
 	const padBottom = 10;
 	const chartWidth = width - padLeft - padRight;
@@ -1208,9 +1324,7 @@ function buildPublicHealthChart(publicServiceStatus: PublicServiceStatus | null,
 
 	const gridHtml = ticks.map(tick => {
 		const y = padTop + chartHeight - (tick / chartMax) * chartHeight;
-		return `
-			<line x1="${padLeft}" y1="${y.toFixed(1)}" x2="${width - padRight}" y2="${y.toFixed(1)}" stroke="var(--table-border)" stroke-width="0.8"/>
-			<text x="${padLeft - 6}" y="${(y + 3).toFixed(1)}" text-anchor="end" fill="var(--text-muted)" font-size="9">${tick.toLocaleString()}</text>`;
+		return `<line x1="${padLeft}" y1="${y.toFixed(1)}" x2="${width - padRight}" y2="${y.toFixed(1)}" stroke="var(--table-border)" stroke-width="0.8"/>`;
 	}).join('');
 
 	const barsHtml = points.map((point, index) => {
@@ -1410,6 +1524,8 @@ function scheduleFooter() {
 	setTimeout(() => { updateFooter(); scheduleFooter(); }, interval);
 }
 scheduleFooter();
+
+window.addEventListener('contextmenu', (event) => event.preventDefault());
 
 function openAntigravitySettings() {
 	vscode.postMessage({ command: 'openAntigravitySettings' });

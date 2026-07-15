@@ -2,6 +2,7 @@ export interface QuotaGroup {
   quota: number;
   resetTime: number | null;
   buckets?: QuotaBucket[];
+  models?: string[];
 }
 
 export interface QuotaBucket {

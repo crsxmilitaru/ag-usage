@@ -24,7 +24,7 @@ import { NotificationManager } from './notifications';
 import { UsageViewProvider } from './panel';
 import { renderStats } from './renderer';
 import { fetchStatusGatorStatus } from './statusgator';
-import { CachedConnection, PublicServiceStatus, ServiceStatus, UsageStatistics } from './types';
+import { CachedConnection, PublicServiceStatus, QuotaGroup, ServiceStatus, UsageStatistics } from './types';
 import { getErrorMessage, isLikelyServerGlitch } from './utils';
 
 async function loadMockUsageStatistics(): Promise<UsageStatistics> {
@@ -34,12 +34,13 @@ async function loadMockUsageStatistics(): Promise<UsageStatistics> {
 	const raw = fs.readFileSync(filePath, 'utf-8');
 	const testData = JSON.parse(raw);
 	const now = Date.now();
-	const groups: Record<string, { quota: number; resetTime: number | null }> = {};
+	const groups: Record<string, QuotaGroup> = {};
 	for (const [name, data] of Object.entries(testData.usageStatistics.groups)) {
-		const entry = data as { quota: number; resetTimeOffsetMs?: number };
+		const entry = data as { quota: number; resetTimeOffsetMs?: number; models?: string[] };
 		groups[name] = {
 			quota: entry.quota,
-			resetTime: entry.resetTimeOffsetMs ? now + entry.resetTimeOffsetMs : null
+			resetTime: entry.resetTimeOffsetMs ? now + entry.resetTimeOffsetMs : null,
+			models: entry.models
 		};
 	}
 	return { groups, plan: testData.usageStatistics.plan, planName: testData.usageStatistics.planName, credits: testData.usageStatistics.credits };

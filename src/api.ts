@@ -448,6 +448,21 @@ export async function fetchStats(port: number, csrfToken: string): Promise<Usage
     }
   }
 
+  for (const model of models) {
+    const { label } = model;
+    if (!label) {
+      continue;
+    }
+    const category = determineCategory(label);
+    const group = groups[category];
+    if (group) {
+      group.models ??= [];
+      if (!group.models.includes(label)) {
+        group.models.push(label);
+      }
+    }
+  }
+
   const plan = firstNonEmptyString(
     response.userStatus?.planStatus?.planInfo?.planName,
     response.userStatus?.plan,

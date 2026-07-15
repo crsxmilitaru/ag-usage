@@ -133,6 +133,8 @@ function buildCategorySvg(options: CategorySvgOptions): string {
 
 	if (group.buckets?.length) {
 		const sortedBuckets = sortQuotaBuckets(group.buckets);
+		const weeklyBucket = sortedBuckets.find(b => b.window.toLowerCase() === 'weekly');
+		const isWeeklyDepleted = weeklyBucket !== undefined && formatQuotaPercent(weeklyBucket.quota) === 0;
 
 		sortedBuckets.slice(0, 2).forEach((bucket, index) => {
 			const bucketPercentage = formatQuotaPercent(bucket.quota);
@@ -157,6 +159,12 @@ function buildCategorySvg(options: CategorySvgOptions): string {
 
 			const fillOpacity = isWeekly ? BUCKET_OPACITY.weeklyBg : BUCKET_OPACITY.defaultBg;
 			const strokeOpacity = isWeekly ? BUCKET_OPACITY.weeklyBorder : BUCKET_OPACITY.defaultBorder;
+			const isDisabled = !isWeekly && isWeeklyDepleted;
+
+			if (isDisabled) {
+				svg += `
+		<g opacity="0.4">`;
+			}
 
 			svg += `
 		<rect x="${boxX}" y="${boxY}" rx="6" width="${boxW}" height="${bucketRowHeight}" fill="${colors.text}" fill-opacity="${fillOpacity}" stroke="${colors.cardBorder}" stroke-opacity="${strokeOpacity}" stroke-width="1"/>`;
@@ -189,6 +197,11 @@ function buildCategorySvg(options: CategorySvgOptions): string {
 			}
 
 			svg += '\n\t\t' + buildProgressBarSvg(itemX, itemW, bucketPercentage, bucketColor, colors, barY, barHeight);
+
+			if (isDisabled) {
+				svg += `
+		</g>`;
+			}
 		});
 		return svg;
 	}

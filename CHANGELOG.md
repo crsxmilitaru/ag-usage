@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.1] - 2026-07-15
+
+- Added an info tooltip on quota cards listing which models belong to each group
+- Dimmed the 5-hour quota bucket when the weekly quota is depleted
+- Simplified the public health chart by removing Y-axis labels
+- Disabled the right-click context menu on the dashboard
+
 ## [1.9.0] - 2026-07-06
 
 - Added Google Antigravity public health status from StatusGator (`enablePublicStatus` to toggle)
