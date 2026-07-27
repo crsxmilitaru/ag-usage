@@ -1,6 +1,6 @@
 {
   "name": "ag-usage",
-  "version": "1.9.1",
+  "version": "1.9.2",
   "displayName": "AG Usage",
   "description": "Track usage of Antigravity AI models",
   "author": "Cristian Militaru",
@@ -88,6 +88,11 @@
           "minimum": 0,
           "maximum": 3600,
           "description": "Refresh interval in seconds. Set to 0 to disable auto-refresh."
+        },
+        "ag-usage.pauseWhenUnfocused": {
+          "type": "boolean",
+          "default": true,
+          "description": "Pause automatic background refresh when the VS Code window is not focused."
         },
         "ag-usage.statusBarDisplay": {
           "type": "string",
@@ -233,11 +238,14 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/node": "^26.1.0",
+    "@types/node": "^26.1.2",
     "@types/vscode": "^1.107.0",
     "esbuild": "^0.28.1",
-    "eslint": "^10.6.0",
+    "eslint": "^10.8.0",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.62.1"
+    "typescript-eslint": "^8.65.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true
   }
 }

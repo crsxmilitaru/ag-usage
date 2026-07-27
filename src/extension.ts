@@ -58,6 +58,8 @@ class ExtensionState implements vscode.Disposable {
 	lastRefreshSucceeded = false;
 	consecutiveFailures = 0;
 	isActive = false;
+	isFocused = vscode.window.state.focused;
+	lastRefreshTimestamp = 0;
 	notificationManager = new NotificationManager();
 	refreshLoopGeneration = 0;
 	serviceStatus: ServiceStatus = 'loading';
@@ -251,7 +253,7 @@ export function activate(context: vscode.ExtensionContext) {
 				}
 			}
 
-			if (e.affectsConfiguration(`${CONFIG_NAMESPACE}.refreshInterval`)) {
+			if (e.affectsConfiguration(`${CONFIG_NAMESPACE}.refreshInterval`) || e.affectsConfiguration(`${CONFIG_NAMESPACE}.pauseWhenUnfocused`)) {
 				startAutoRefresh(false);
 				return;
 			}
@@ -269,6 +271,22 @@ export function activate(context: vscode.ExtensionContext) {
 				refresh(false).catch(err => state?.log('Refresh after theme change failed', err));
 			}
 		}),
+		vscode.window.onDidChangeWindowState(e => {
+			if (!state) { return; }
+			state.isFocused = e.focused;
+			const pauseWhenUnfocused = vscode.workspace.getConfiguration(CONFIG_NAMESPACE).get<boolean>('pauseWhenUnfocused', true);
+			if (!pauseWhenUnfocused) { return; }
+
+			if (!e.focused) {
+				if (state.refreshTimer) {
+					state.clearTimers();
+					state.log('Auto-refresh paused (window lost focus)');
+				}
+			} else {
+				state.log('Window gained focus');
+				onWindowFocused();
+			}
+		})
 	);
 
 	state.log('Extension activated');
@@ -299,6 +317,37 @@ export async function deactivate() {
 	}
 }
 
+function onWindowFocused() {
+	if (!state || !state.isActive) { return; }
+
+	const config = vscode.workspace.getConfiguration(CONFIG_NAMESPACE);
+	const pauseWhenUnfocused = config.get<boolean>('pauseWhenUnfocused', true);
+	if (!pauseWhenUnfocused) { return; }
+
+	const rawInterval = config.get<number>('refreshInterval', DEFAULT_REFRESH_INTERVAL);
+	let intervalSeconds = (typeof rawInterval !== 'number' || isNaN(rawInterval)) ? DEFAULT_REFRESH_INTERVAL : rawInterval;
+	intervalSeconds = intervalSeconds === 0 ? 0 : Math.max(10, intervalSeconds);
+
+	if (intervalSeconds === 0) { return; }
+
+	const intervalMs = intervalSeconds * MS_PER_SECOND;
+	const elapsedMs = Date.now() - state.lastRefreshTimestamp;
+
+	if (state.lastRefreshTimestamp === 0 || !state.lastRefreshSucceeded || elapsedMs >= intervalMs) {
+		state.log(`Resuming auto-refresh after window focus (elapsed: ${Math.round(elapsedMs / 1000)}s)`);
+		startAutoRefresh(false);
+	} else {
+		const remainingMs = intervalMs - elapsedMs;
+		state.log(`Resuming auto-refresh schedule in ${Math.round(remainingMs / 1000)}s`);
+		state.clearTimers();
+		state.refreshTimer = setTimeout(() => {
+			if (state && state.isActive) {
+				startAutoRefresh(false);
+			}
+		}, remainingMs);
+	}
+}
+
 function startAutoRefresh(showFirst: boolean = false) {
 	if (!state) { return; }
 	state.clearTimers();
@@ -306,6 +355,13 @@ function startAutoRefresh(showFirst: boolean = false) {
 
 	const runLoop = async (show: boolean) => {
 		if (!state || !state.isActive || state.refreshLoopGeneration !== generation) { return; }
+
+		const config = vscode.workspace.getConfiguration(CONFIG_NAMESPACE);
+		const pauseWhenUnfocused = config.get<boolean>('pauseWhenUnfocused', true);
+		if (pauseWhenUnfocused && !state.isFocused) {
+			state.log('Auto-refresh paused (window not focused)');
+			return;
+		}
 
 		try {
 			await refresh(show, { includePublicStatus: true });
@@ -315,13 +371,17 @@ function startAutoRefresh(showFirst: boolean = false) {
 
 		if (!state || !state.isActive || state.refreshLoopGeneration !== generation) { return; }
 
-		const config = vscode.workspace.getConfiguration(CONFIG_NAMESPACE);
 		const rawInterval = config.get<number>('refreshInterval', DEFAULT_REFRESH_INTERVAL);
 		let intervalSeconds = (typeof rawInterval !== 'number' || isNaN(rawInterval)) ? DEFAULT_REFRESH_INTERVAL : rawInterval;
 		intervalSeconds = intervalSeconds === 0 ? 0 : Math.max(10, intervalSeconds);
 
 		if (intervalSeconds === 0) {
 			state.log('Auto-refresh disabled (interval set to 0)');
+			return;
+		}
+
+		if (pauseWhenUnfocused && !state.isFocused) {
+			state.log('Auto-refresh paused (window not focused)');
 			return;
 		}
 
@@ -405,6 +465,7 @@ async function refresh(showRefreshing: boolean, options: RefreshOptions = {}) {
 		const serverGlitch = isLikelyServerGlitch(statsData.groups);
 
 		currentState.lastRefreshSucceeded = true;
+		currentState.lastRefreshTimestamp = Date.now();
 
 		if (serverGlitch) {
 			currentState.serviceStatus = 'glitch';
@@ -498,6 +559,7 @@ async function refresh(showRefreshing: boolean, options: RefreshOptions = {}) {
 		} catch (error) {
 			if (!currentState.isActive) { return; }
 			currentState.lastRefreshSucceeded = false;
+			currentState.lastRefreshTimestamp = Date.now();
 			currentState.serviceStatus = 'disconnected';
 			await minDelay;
 			currentState.publicServiceStatus = await publicStatusPromise;

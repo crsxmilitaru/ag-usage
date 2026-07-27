@@ -28,7 +28,7 @@
 
 - **Status bar integration**: Displays a configurable status bar item showing your model quota usage.
 
-- **Auto-refresh**: Usage data is automatically updated every 60 seconds by default, but can be configured.
+- **Auto-refresh**: Usage data is automatically updated every 60 seconds by default, but can be configured. By default, it also pauses background refreshes when the IDE window is unfocused.
 
 - **Detailed tooltip**: Hover over the status bar item to see a detailed breakdown and visual progress bars for model categories (as they are calculated by Antigravity):
   - **Gemini** - Gemini Pro and Gemini Flash models
@@ -50,6 +50,8 @@
 ## 📝 Configuration
 
 - `ag-usage.refreshInterval`: Set the interval (in seconds) between automatic refreshes. Set to `0` to disable auto-refresh. Default is `60` seconds.
+
+- `ag-usage.pauseWhenUnfocused`: Pause automatic background refresh when the VS Code window is not focused. Default is `true`.
 
 - `ag-usage.statusBarDisplay`: Control what information is shown in the status bar. Options:
   - `average` - Shows the average usage across all groups

@@ -1,6 +1,7 @@
 .vscode/**
 .vscode-test/**
 .git/**
+.github/**
 .gitignore
 .vscodeignore
 node_modules/**
@@ -19,3 +20,4 @@ assets/preview.png
 dev/**
 .idea/**
 GEMINI.md
+eslint.config.mjs

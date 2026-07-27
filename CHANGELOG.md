@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.9.2] - 2026-07-27
+
+- Added `ag-usage.pauseWhenUnfocused` setting to pause automatic background refresh when the VS Code window is not focused
+
 ## [1.9.1] - 2026-07-15
 
 - Added an info tooltip on quota cards listing which models belong to each group
