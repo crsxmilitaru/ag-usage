@@ -16,7 +16,9 @@ tsconfig.json
 npm-debug.log
 yarn-error.log
 package-lock.json
-assets/preview.png
+assets/**
+!assets/icon.png
+scripts/**
 dev/**
 .idea/**
 GEMINI.md

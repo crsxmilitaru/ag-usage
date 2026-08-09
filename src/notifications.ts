@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { CATEGORY_ORDER, CONFIG_NAMESPACE, EXTENSION_TITLE } from './constants';
+import { CATEGORY_ORDER, CONFIG_NAMESPACE, EXTENSION_TITLE, LOW_QUOTA_REARM_MARGIN_PERCENT } from './constants';
 import { UsageStatistics } from './types';
 
 export class NotificationManager {
@@ -8,6 +8,10 @@ export class NotificationManager {
 
 	public clear(): void {
 		this.fullQuotaNotifiedCategories.clear();
+		this.lowQuotaNotifiedCategories.clear();
+	}
+
+	public clearLowQuotaNotifications(): void {
 		this.lowQuotaNotifiedCategories.clear();
 	}
 
@@ -45,7 +49,7 @@ export class NotificationManager {
 							vscode.window.showWarningMessage(`${EXTENSION_TITLE}: ${category} has less than ${threshold}% quota remaining.`);
 							this.lowQuotaNotifiedCategories.add(category);
 						}
-					} else {
+					} else if (percentage >= Math.min(100, threshold + LOW_QUOTA_REARM_MARGIN_PERCENT)) {
 						this.lowQuotaNotifiedCategories.delete(category);
 					}
 				}

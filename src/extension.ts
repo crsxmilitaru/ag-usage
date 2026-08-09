@@ -53,6 +53,7 @@ class ExtensionState implements vscode.Disposable {
 	initialRefreshTimeout?: ReturnType<typeof setTimeout>;
 	cachedConnection: CachedConnection | null = null;
 	lastStatsData: UsageStatistics | null = null;
+	lastPreviousStatsData: UsageStatistics | null = null;
 	refreshPromise: Promise<void> | null = null;
 	refreshIncludesPublicStatus = false;
 	lastRefreshSucceeded = false;
@@ -119,14 +120,13 @@ class ExtensionState implements vscode.Disposable {
 		this.clearTimers();
 		this.cachedConnection = null;
 		this.lastStatsData = null;
+		this.lastPreviousStatsData = null;
 		this.refreshPromise = null;
 		this.refreshIncludesPublicStatus = false;
 		this.lastRefreshSucceeded = false;
 		this.consecutiveFailures = 0;
 		this.serviceStatus = 'disconnected';
 		this.publicServiceStatus = null;
-		this.notificationManager.clear();
-		this.quotaHistory.clear();
 	}
 
 	clearTimers() {
@@ -180,7 +180,14 @@ export function activate(context: vscode.ExtensionContext) {
 		}),
 		vscode.commands.registerCommand(SETTINGS_COMMAND, () => vscode.commands.executeCommand('workbench.action.openSettings', CONFIG_NAMESPACE)),
 		vscode.commands.registerCommand(OPEN_PANEL_COMMAND, () => focusUsagePanel()),
-		vscode.commands.registerCommand('ag-usage.openModelsSettings', () => vscode.commands.executeCommand('workbench.action.openAntigravitySettingsWithId', undefined, 'Models')),
+		vscode.commands.registerCommand('ag-usage.openModelsSettings', async () => {
+			try {
+				await vscode.commands.executeCommand('workbench.action.openAntigravitySettingsWithId', undefined, 'Models');
+			} catch (error) {
+				state?.log('Failed to open Antigravity models settings', error);
+				vscode.window.showWarningMessage('Could not open Antigravity model settings. This Antigravity version may not support it.');
+			}
+		}),
 		vscode.commands.registerCommand(EXPORT_HISTORY_COMMAND, async () => {
 			if (!state) return;
 			const history = state.quotaHistory.getRawEntries();
@@ -240,7 +247,10 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 
 			if ((e.affectsConfiguration(`${CONFIG_NAMESPACE}.notifyOnFullQuota`) || e.affectsConfiguration(`${CONFIG_NAMESPACE}.lowQuotaNotificationThreshold`)) && state.lastStatsData) {
-				state.notificationManager.checkQuotaNotifications(state.lastStatsData, state.lastStatsData);
+				if (e.affectsConfiguration(`${CONFIG_NAMESPACE}.lowQuotaNotificationThreshold`)) {
+					state.notificationManager.clearLowQuotaNotifications();
+				}
+				state.notificationManager.checkQuotaNotifications(state.lastStatsData, state.lastPreviousStatsData);
 			}
 
 			if (e.affectsConfiguration(`${CONFIG_NAMESPACE}.enablePublicStatus`)) {
@@ -258,7 +268,7 @@ export function activate(context: vscode.ExtensionContext) {
 				return;
 			}
 
-			if ((e.affectsConfiguration(`${CONFIG_NAMESPACE}.statusBarAlignment`) || e.affectsConfiguration(`${CONFIG_NAMESPACE}.statusBarPriority`)) && state) {
+			if (e.affectsConfiguration(`${CONFIG_NAMESPACE}.statusBarAlignment`) || e.affectsConfiguration(`${CONFIG_NAMESPACE}.statusBarPriority`)) {
 				state.recreateStatusBarItem();
 			}
 
@@ -358,7 +368,7 @@ function startAutoRefresh(showFirst: boolean = false) {
 
 		const config = vscode.workspace.getConfiguration(CONFIG_NAMESPACE);
 		const pauseWhenUnfocused = config.get<boolean>('pauseWhenUnfocused', true);
-		if (pauseWhenUnfocused && !state.isFocused) {
+		if (pauseWhenUnfocused && !state.isFocused && state.lastRefreshTimestamp > 0) {
 			state.log('Auto-refresh paused (window not focused)');
 			return;
 		}
@@ -471,6 +481,7 @@ async function refresh(showRefreshing: boolean, options: RefreshOptions = {}) {
 			currentState.serviceStatus = 'glitch';
 			currentState.log('Server reported all groups at 0% with elapsed reset time — treating as a server glitch; skipping history record');
 		} else {
+			currentState.lastPreviousStatsData = previousStatsData;
 			currentState.lastStatsData = statsData;
 			currentState.serviceStatus = Object.keys(statsData.groups).length === 0 ? 'degraded' : 'connected';
 			currentState.quotaHistory.recordSnapshot(statsData.groups);
@@ -568,8 +579,8 @@ async function refresh(showRefreshing: boolean, options: RefreshOptions = {}) {
 			currentState.log('Refresh failed', err);
 			currentState.statusBarItem.text = `$(error) ${EXTENSION_TITLE}`;
 			currentState.statusBarItem.tooltip = createErrorTooltip(err);
-			currentState.statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
-			currentState.statusBarItem.color = new vscode.ThemeColor('statusBarItem.warningForeground');
+			currentState.statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
+			currentState.statusBarItem.color = new vscode.ThemeColor('statusBarItem.errorForeground');
 			currentState.usageViewProvider.update(currentState.lastStatsData, currentState.quotaHistory, currentState.serviceStatus, currentState.publicServiceStatus);
 		}
 	};

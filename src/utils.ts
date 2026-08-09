@@ -1,5 +1,5 @@
 import { spawn } from 'child_process';
-import { CATEGORY_ORDER, MAX_PID_32BIT_SIGNED, MAX_PORT, MIN_PORT, MS_PER_DAY, MS_PER_HOUR, MS_PER_MINUTE, PROGRESS_BUCKET_BOUNDARIES, PROGRESS_STOPS, SERVER_STARTUP_DELAY } from './constants';
+import { CATEGORY_ORDER, MAX_PID_32BIT_SIGNED, MAX_PORT, MIN_PORT, MS_PER_DAY, MS_PER_HOUR, MS_PER_MINUTE, PROGRESS_BUCKET_BOUNDARIES, PROGRESS_STOPS, SERVER_STARTUP_TOLERANCE_MINUTES } from './constants';
 import { QuotaBucket, QuotaGroup } from './types';
 
 export const MAX_BUFFER_SIZE = 1024 * 1024;
@@ -83,7 +83,7 @@ export function getErrorMessage(error: unknown): string {
 }
 
 export function isNotStartedQuota(percentage: number, resetMs: number): boolean {
-  const toleranceMs = SERVER_STARTUP_DELAY * MS_PER_MINUTE;
+  const toleranceMs = SERVER_STARTUP_TOLERANCE_MINUTES * MS_PER_MINUTE;
   const nearFiveHours = Math.abs(resetMs - 5 * MS_PER_HOUR) < toleranceMs;
   const nearSevenDays = Math.abs(resetMs - 7 * MS_PER_DAY) < toleranceMs;
   return percentage >= 100 && (nearFiveHours || nearSevenDays);

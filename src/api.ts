@@ -108,58 +108,44 @@ export async function findValidPort(ports: number[], csrfToken: string): Promise
   const errors: Map<number, string> = new Map();
   const maxAttempts = MAX_PORT_VALIDATION_ATTEMPTS;
 
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    if (attempt > 0) {
-      await delay(RETRY_DELAY_MS);
-    }
+  const tryPorts = async (checkPort: (port: number, token: string) => Promise<void>): Promise<number | null> => {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      if (attempt > 0) {
+        await delay(RETRY_DELAY_MS);
+      }
 
-    errors.clear();
+      errors.clear();
 
-    try {
-      return await Promise.any(ports.map(async (port) => {
-        try {
-          await checkQuotaSummaryPort(port, csrfToken);
-          return port;
-        } catch (error) {
-          errors.set(port, getErrorMessage(error));
-          throw error;
+      try {
+        return await Promise.any(ports.map(async (port) => {
+          try {
+            await checkPort(port, csrfToken);
+            return port;
+          } catch (error) {
+            errors.set(port, getErrorMessage(error));
+            throw error;
+          }
+        }));
+      } catch {
+        const allNonRetriable = errors.size === ports.length &&
+          Array.from(errors.values()).every(isNonRetriableError);
+
+        if (allNonRetriable) {
+          break;
         }
-      }));
-    } catch {
-      const allNonRetriable = errors.size === ports.length &&
-        Array.from(errors.values()).every(isNonRetriableError);
-
-      if (allNonRetriable) {
-        break;
       }
     }
+    return null;
+  };
+
+  const summaryPort = await tryPorts(checkQuotaSummaryPort);
+  if (summaryPort !== null) {
+    return summaryPort;
   }
 
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    if (attempt > 0) {
-      await delay(RETRY_DELAY_MS);
-    }
-
-    errors.clear();
-
-    try {
-      return await Promise.any(ports.map(async (port) => {
-        try {
-          await checkLegacyPort(port, csrfToken);
-          return port;
-        } catch (error) {
-          errors.set(port, getErrorMessage(error));
-          throw error;
-        }
-      }));
-    } catch {
-      const allNonRetriable = errors.size === ports.length &&
-        Array.from(errors.values()).every(isNonRetriableError);
-
-      if (allNonRetriable) {
-        break;
-      }
-    }
+  const legacyPort = await tryPorts(checkLegacyPort);
+  if (legacyPort !== null) {
+    return legacyPort;
   }
 
   const uniqueErrors = new Set(errors.values());
@@ -224,7 +210,6 @@ function makeLocalRequest<T>(
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(payload),
         'X-Codeium-Csrf-Token': csrfToken,
-        'x-codeium-csrf-token': csrfToken,
         'Connect-Protocol-Version': '1'
       },
       timeout: REQUEST_TIMEOUT_MS
@@ -437,12 +422,12 @@ export async function fetchStats(port: number, csrfToken: string): Promise<Usage
       const category = determineCategory(label);
       const group = groups[category] ??= { quota: 1, resetTime: null };
 
+      const resetTimestamp = parseResetTime(quotaInfo?.resetTime);
       if (modelQuota < group.quota) {
         group.quota = modelQuota;
-      }
-
-      const resetTimestamp = parseResetTime(quotaInfo?.resetTime);
-      if (resetTimestamp !== null && (group.resetTime === null || resetTimestamp < group.resetTime)) {
+        group.resetTime = resetTimestamp;
+      } else if (modelQuota === group.quota && resetTimestamp !== null &&
+        (group.resetTime === null || resetTimestamp < group.resetTime)) {
         group.resetTime = resetTimestamp;
       }
     }

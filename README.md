@@ -18,15 +18,19 @@
 
 ---
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/crsxmilitaru/ag-usage/main/assets/preview.png" alt="AG Usage Preview" style="width: 100%; max-width: 800px; border-radius: 8px; border: 1px solid #30363d; box-shadow: 0 4px 16px rgba(0,0,0,0.3);">
-</p>
-
 ## ✨ Features
 
-- **Webview panel**: Includes a dashboard showing your current quotas, Extra Credits, a complete history log of all usage changes, a usage activity heatmap with monthly navigation, and a button to open the official Models page.
+- **Webview panel**: Includes a dashboard showing your current model quotas, Extra Credits, StatusGator public health information, an interactive usage history log with trend sparklines, and a usage activity heatmap with monthly navigation.
+
+  <p align="center">
+    <img src="https://raw.githubusercontent.com/crsxmilitaru/ag-usage/main/assets/panel.png" alt="AG Usage Dashboard Panel Preview" width="800">
+  </p>
 
 - **Status bar integration**: Displays a configurable status bar item showing your model quota usage.
+
+  <p align="center">
+    <img src="https://raw.githubusercontent.com/crsxmilitaru/ag-usage/main/assets/statusbar.png" alt="AG Usage Status Bar Preview" height="32">
+  </p>
 
 - **Auto-refresh**: Usage data is automatically updated every 60 seconds by default, but can be configured. By default, it also pauses background refreshes when the IDE window is unfocused.
 
@@ -34,11 +38,14 @@
   - **Gemini** - Gemini Pro and Gemini Flash models
   - **Other** - Claude and GPT models
 
-- **Quota reset timer**: Each model category displays the time remaining until quota resets, highlighted in green when less than 10 minutes remains. Time is displayed only when the Antigravity quota reset timer is triggered (first use of the AI model after a 100% usage).
+  <p align="center">
+    <img src="https://raw.githubusercontent.com/crsxmilitaru/ag-usage/main/assets/tooltip.png" alt="AG Usage Tooltip Preview" width="520">
+  </p>
+
+- **Quota reset timer**: Each model category displays the time remaining until quota resets. Time is displayed only when the Antigravity quota reset timer is triggered (first use of the AI model after a 100% usage).
 
 - **Cross-platform**: Fully compatible with **Windows**, **macOS**, and **Linux**.
 
-- **Public service status**: Shows StatusGator public health information for Google Antigravity alongside the local connection status.
 
 ## 📖 Usage
 

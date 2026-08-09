@@ -71,7 +71,7 @@ function getStatusGatorReportCount(text: string): number | undefined {
 
 export function parseStatusGatorResponse(html: string): PublicServiceStatus {
   const text = htmlToText(html);
-  const phrase = text.match(/Google Antigravity is ([^.]+?)(?:\.|\s{2,}|$)/i)?.[1]?.trim();
+  const phrase = text.match(/Google Antigravity is ([^.]+?)(?:\.|$)/i)?.[1]?.trim();
   const reportCount = getStatusGatorReportCount(text);
   const details = reportCount !== undefined ? `${reportCount.toLocaleString()} reports/24h` : undefined;
   const healthPoints = parseStatusGatorChartPoints(html);

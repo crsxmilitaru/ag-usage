@@ -118,6 +118,7 @@ class WindowsPlatform implements PlatformStrategy {
     for (const line of lines) {
       const parts = line.trim().split(/\s+/);
       if (parts.length < 5) { continue; }
+      if (parts[3] !== 'LISTENING') { continue; }
 
       const linePid = parseInt(parts[parts.length - 1], 10);
       if (linePid !== pid) { continue; }
@@ -177,6 +178,9 @@ class UnixPlatform implements PlatformStrategy {
         const stdout = await executeCommand('lsof', ['-iTCP', '-sTCP:LISTEN', '-n', '-P', '-p', String(pid)]);
         return this.parseUnixLsofOutput(stdout);
       } catch (error) {
+        if (getErrorMessage(error).includes('exited with code 1')) {
+          return [];
+        }
         throw new Error(`Failed to query Unix ports calling lsof: ${getErrorMessage(error)}`, { cause: error });
       }
     }

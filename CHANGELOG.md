@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.3] - 2026-08-09
+
+- Added responsive layout scaling and fluid typography to dashboard panel
+- Preserved scroll position and card expansion state across panel refreshes
+- Fixed initial data fetch on startup when VS Code is unfocused
+- Improved port detection reliability on Windows and Unix platforms
+
 ## [1.9.2] - 2026-07-27
 
 - Added `ag-usage.pauseWhenUnfocused` setting to pause automatic background refresh when the VS Code window is not focused

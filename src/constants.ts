@@ -10,7 +10,7 @@ export const INITIAL_DELAY_MS = 1500;
 export const MIN_DISPLAY_DELAY_MS = 300;
 export const STATUS_BAR_PRIORITY = 100;
 export const DEFAULT_REFRESH_INTERVAL = 60;
-export const SERVER_STARTUP_DELAY = 10;
+export const SERVER_STARTUP_TOLERANCE_MINUTES = 10;
 export const MS_PER_SECOND = 1000;
 export const MS_PER_MINUTE = 60000;
 export const MS_PER_HOUR = 3600000;
@@ -26,6 +26,7 @@ export const MAX_FAILED_REFRESH_DELAY_MS = 60000;
 export const MAX_STATUS_TEXT_LENGTH = 120;
 export const MAX_PORT_VALIDATION_ATTEMPTS = 2;
 export const HEATMAP_MAX_DAYS = 180;
+export const LOW_QUOTA_REARM_MARGIN_PERCENT = 10;
 export const STATUSGATOR_SERVICE_URL = 'https://statusgator.com/services/google-antigravity';
 export const PUBLIC_STATUS_REFRESH_INTERVAL_MS = 5 * MS_PER_MINUTE;
 
@@ -37,7 +38,7 @@ export const PROCESS_IDENTIFIERS = {
 
 export const IDE_INFO = {
   NAME: 'antigravity-ide',
-  VERSION: '2.0.1'
+  VERSION: '2.1.1'
 };
 
 export const SVG_CONFIG = {

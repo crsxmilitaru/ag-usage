@@ -52,7 +52,10 @@ export class UsageViewProvider implements vscode.WebviewViewProvider {
 					this.updateView();
 				}
 			} else if (message.command === 'openAntigravitySettings') {
-				vscode.commands.executeCommand('workbench.action.openAntigravitySettingsWithId', undefined, 'Models');
+				vscode.commands.executeCommand('workbench.action.openAntigravitySettingsWithId', undefined, 'Models')
+					.then(undefined, () => {
+						vscode.window.showWarningMessage('Could not open Antigravity model settings. This Antigravity version may not support it.');
+					});
 			} else if (message.command === 'prevMonth') {
 				this.heatmapMonth--;
 				if (this.heatmapMonth < 0) {
@@ -238,7 +241,7 @@ function buildHistorySparkline(entries: QuotaHistoryEntry[], locale?: string): s
 		const tooltip = `Quota: ${Math.round(pct)}%\nTime: ${timeStr}`;
 
 		const dotColor = pct >= 100 ? 'var(--success)' : pct < 20 ? 'var(--error)' : lineColor;
-		dotsHtml += `<circle cx="${x}" cy="${y}" r="3" fill="${dotColor}" stroke="var(--card-bg)" stroke-width="1.5"><title>${tooltip}</title></circle>`;
+		dotsHtml += `<circle cx="${x}" cy="${y}" r="3" fill="${dotColor}" stroke="var(--card-bg)" stroke-width="1.5"><title>${escapeHtml(tooltip)}</title></circle>`;
 	});
 
 	const y100 = scaleY(100);
@@ -246,10 +249,10 @@ function buildHistorySparkline(entries: QuotaHistoryEntry[], locale?: string): s
 
 	return `
 		<div class="history-chart">
-			<svg viewBox="0 0 ${width} ${height}">
-				<line x1="${padding}" y1="${y100}" x2="${width - padding}" y2="${y100}" class="chart-guide"/>
-				<line x1="${padding}" y1="${y0}" x2="${width - padding}" y2="${y0}" class="chart-guide"/>
-				<path d="${pathD}" fill="none" stroke="${lineColor}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+			<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
+				<line x1="${padding}" y1="${y100}" x2="${width - padding}" y2="${y100}" class="chart-guide" vector-effect="non-scaling-stroke"/>
+				<line x1="${padding}" y1="${y0}" x2="${width - padding}" y2="${y0}" class="chart-guide" vector-effect="non-scaling-stroke"/>
+				<path d="${pathD}" fill="none" stroke="${lineColor}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
 				${dotsHtml}
 			</svg>
 		</div>`;
@@ -261,7 +264,7 @@ function buildHistorySectionHtml(category: string, categoryEntries: QuotaHistory
 	const sparklineHtml = buildHistorySparkline(categoryEntries.slice(0, 20).reverse(), locale);
 
 	return `
-		<details class="card-history-details">
+		<details class="card-history-details" data-category="${escapeHtml(category)}">
 			<summary class="card-history-summary">
 				${sparklineHtml}
 				<div class="card-action-overlay">
@@ -307,7 +310,7 @@ function buildCardHeaderHtml(category: string, group: QuotaGroup | undefined, lo
 		const tooltipContent = modelsList.map(m => `<div class="tooltip-model-item">${escapeHtml(m)}</div>`).join('');
 		infoButtonHtml = `
 			<div class="info-button-container">
-				<button type="button" class="info-button" aria-label="Models in this group: ${modelsSummary}" onclick="event.stopPropagation();">
+				<button type="button" class="info-button" aria-label="Models in this group: ${modelsSummary}">
 					<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
 						<path fill-rule="evenodd" clip-rule="evenodd" d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM2.5 8a5.5 5.5 0 1 1 11 0 5.5 5.5 0 0 1-11 0zM8 4a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5zM8 7a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5a.75.75 0 0 1 .75-.75z"/>
 					</svg>
@@ -490,7 +493,7 @@ function getPanelStyles(): string {
 	--success: ${THEME_COLORS.dark.success};
 	--warning: ${THEME_COLORS.dark.warning};
 	--error: ${THEME_COLORS.dark.error};
-	--metric-row-bg: color-mix(in srgb, var(--text-primary) ${BUCKET_OPACITY.defaultBg * 100}%, transparent);
+	--metric-row-bg: color-mix(in srgb, #000 ${BUCKET_OPACITY.defaultBg * 100}%, var(--card-bg));
 	--metric-row-border: color-mix(in srgb, var(--card-border) ${BUCKET_OPACITY.defaultBorder * 100}%, transparent);
 ${buildProgressVars(THEME_COLORS.dark.progress)}
 	--radius-sm: 6px;
@@ -501,7 +504,8 @@ body.vscode-light {
 ${buildProgressVars(THEME_COLORS.light.progress)}
 }
 
-html, body { height: 100%; }
+html { container-type: inline-size; height: 100%; }
+body { height: 100%; }
 
 * {
 	margin: 0;
@@ -529,6 +533,9 @@ body {
 	user-select: none;
 	overflow-y: auto;
 	scrollbar-gutter: stable;
+	max-width: 650px;
+	margin: 0 auto;
+	width: 100%;
 }
 
 .section {
@@ -675,7 +682,7 @@ body {
 
 .weekly-bucket {
 	margin: 0;
-	background: color-mix(in srgb, var(--text-primary) ${BUCKET_OPACITY.weeklyBg * 100}%, transparent);
+	background: color-mix(in srgb, #000 ${BUCKET_OPACITY.weeklyBg * 100}%, var(--card-bg));
 	border-color: color-mix(in srgb, var(--metric-row-border) ${BUCKET_OPACITY.weeklyBorder * 100}%, transparent);
 }
 .disabled-bucket {
@@ -895,7 +902,7 @@ body {
 
 .history-chart { background: var(--panel-bg); border-radius: var(--radius-sm); padding: 4px 4px 16px; transition: opacity 0.15s ease; opacity: 0.7; }
 .history-chart:hover { opacity: 1; }
-.history-chart svg { display: block; width: 100%; height: auto; }
+.history-chart svg { display: block; width: 100%; height: 44px; max-height: 44px; }
 .history-chart circle { transition: r 0.15s ease; cursor: default; }
 .history-chart circle:hover { r: 4.5; }
 .chart-guide { stroke: var(--table-border); stroke-width: 0.8; stroke-dasharray: 2 1; opacity: 0.6; }
@@ -1013,11 +1020,6 @@ body {
 	min-width: 80px;
 	text-align: center;
 }
-.heatmap-range {
-	font-size: 10px;
-	color: var(--text-muted);
-	display: none;
-}
 .heatmap-grid {
 	display: flex;
 	flex-direction: column;
@@ -1126,7 +1128,8 @@ body {
 .public-health-chart > svg {
 	display: block;
 	width: 100%;
-	height: auto;
+	height: 126px;
+	max-height: 126px;
 }
 .public-health-legend {
 	display: flex;
@@ -1241,6 +1244,46 @@ body {
 	overflow: hidden;
 	text-overflow: ellipsis;
 }
+
+@container (max-width: 400px) {
+	body {
+		padding: clamp(4px, 2cqw, 8px) clamp(6px, 3cqw, 12px);
+		gap: clamp(6px, 3cqw, 12px);
+	}
+	.quota-grid {
+		gap: clamp(6px, 3cqw, 12px);
+	}
+	.quota-card {
+		padding: clamp(8px, 3.5cqw, 14px);
+	}
+	.quota-bucket-row {
+		padding: clamp(6px, 2.5cqw, 10px) clamp(8px, 3cqw, 12px) clamp(5px, 2cqw, 8px);
+		min-height: clamp(38px, 12.5cqw, 50px);
+	}
+	.quota-value {
+		font-size: clamp(13px, 5cqw, 20px);
+	}
+	.bucket-value {
+		font-size: clamp(12px, 4.5cqw, 18px);
+	}
+	.quota-label, .heatmap-title, .public-health-title {
+		font-size: clamp(9px, 3cqw, 12px);
+	}
+	.bucket-label, .bucket-reset-time, .reset-label, .reset-value {
+		font-size: clamp(8px, 2.75cqw, 11px);
+	}
+	.heatmap-section, .public-health-section {
+		padding: clamp(8px, 3.5cqw, 14px);
+	}
+	.heatmap-cell {
+		width: clamp(8px, 3.5cqw, 14px);
+		height: clamp(8px, 3.5cqw, 14px);
+	}
+	.heatmap-label {
+		width: clamp(8px, 3.5cqw, 14px);
+		font-size: clamp(7px, 2.25cqw, 9px);
+	}
+}
 `;
 }
 
@@ -1277,6 +1320,7 @@ function buildTopRow(statsData: UsageStatistics | null): string {
 			</div>`;
 	}
 
+	if (!planCard && !creditsCard) { return ''; }
 	return `<div class="top-row">${planCard}${creditsCard}</div>`;
 }
 
@@ -1342,7 +1386,7 @@ function buildPublicHealthChart(publicServiceStatus: PublicServiceStatus | null,
 				<div class="public-health-time">24h</div>
 			</div>
 			<div class="public-health-chart">
-				<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Google Antigravity service health over the last 24 hours">
+				<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="Google Antigravity service health over the last 24 hours">
 					${gridHtml}
 					${barsHtml}
 				</svg>
@@ -1472,23 +1516,19 @@ function buildHeatmapSection(dailyUsage: ReadonlyArray<DailyUsageEntry>, targetM
 function buildPanelHtml(statsData: UsageStatistics | null, history: QuotaHistory, heatmapMonth: number, heatmapYear: number, locale?: string, serviceStatus: ServiceStatus = 'disconnected', refreshInterval: number = 60, publicServiceStatus: PublicServiceStatus | null = null): string {
 	const nonce = crypto.randomBytes(16).toString('base64');
 	const showInitialLoading = serviceStatus === 'loading' && !statsData;
-	const topRow = buildTopRow(statsData);
-	const publicHealth = buildPublicHealthChart(publicServiceStatus, locale);
-	const heatmap = buildHeatmapSection(history.getDailyUsage(), heatmapMonth, heatmapYear, locale);
-	const quotaCards = buildQuotaCards(statsData, history, locale);
 	const bodyClass = showInitialLoading ? ' class="panel-loading-body"' : '';
 	const bodyContent = showInitialLoading
 		? buildInitialLoadingScreen()
 		: `
-	${topRow}
-	${publicHealth}
+	${buildTopRow(statsData)}
+	${buildPublicHealthChart(publicServiceStatus, locale)}
 	<div class="section">
-		<div class="quota-grid">${quotaCards}</div>
+		<div class="quota-grid">${buildQuotaCards(statsData, history, locale)}</div>
 	</div>
-	${heatmap}
+	${buildHeatmapSection(history.getDailyUsage(), heatmapMonth, heatmapYear, locale)}
 	<div class="panel-footer">
 		<span id="lastUpdated">Updated just now</span>
-		<span class="refresh-interval-info">• ${refreshInterval > 0 ? `Auto: ${refreshInterval}s` : 'Auto: Off'}</span>
+		<span class="refresh-interval-info">• ${refreshInterval > 0 ? `Auto: ${Math.max(10, refreshInterval)}s` : 'Auto: Off'}</span>
 	</div>`;
 
 	return `<!DOCTYPE html>
@@ -1506,6 +1546,10 @@ ${getPanelStyles()}
 <script nonce="${nonce}">
 const vscode = acquireVsCodeApi();
 const updatedAt = ${Date.now()};
+const uiState = vscode.getState() || {};
+function saveUiState() {
+	vscode.setState(uiState);
+}
 function updateFooter() {
 	const diff = Date.now() - updatedAt;
 	const sec = Math.floor(diff / 1000);
@@ -1599,10 +1643,13 @@ function closeDetails(d, syncCollapse = false) {
 
 document.querySelectorAll('.quota-grid .quota-card').forEach(card => {
 	card.addEventListener('click', (e) => {
+		if (e.target.closest('.info-button-container')) return;
 		if (!card.classList.contains('minimized')) return;
 		e.stopPropagation();
 		document.querySelectorAll('.card-history-details[open]').forEach(d => closeDetails(d, true));
 		document.querySelectorAll('.quota-grid .quota-card').forEach(c => c.classList.remove('minimized'));
+		uiState.openDetails = null;
+		saveUiState();
 	});
 });
 
@@ -1648,8 +1695,41 @@ document.querySelectorAll('.card-history-summary').forEach(summary => {
 				card.classList.remove('minimized');
 			});
 		}
+		uiState.openDetails = willOpen ? (details.dataset.category || null) : null;
+		saveUiState();
 	});
 });
+
+let scrollSaveTimer = null;
+document.addEventListener('scroll', () => {
+	if (scrollSaveTimer) return;
+	scrollSaveTimer = setTimeout(() => {
+		scrollSaveTimer = null;
+		uiState.scrollY = document.body.scrollTop;
+		saveUiState();
+	}, 150);
+}, true);
+
+(function restoreUiState() {
+	if (uiState.openDetails) {
+		document.querySelectorAll('.card-history-details').forEach(d => {
+			if (d.dataset.category === uiState.openDetails && !d.open) {
+				d.open = true;
+				const hl = d.querySelector('.history-list');
+				if (hl) hl.classList.add('expanded');
+				const inner = d.querySelector('.history-list-inner');
+				if (inner) inner.classList.add('scrollable');
+				const thisCard = d.closest('.quota-card');
+				document.querySelectorAll('.quota-grid .quota-card').forEach(card => {
+					if (card !== thisCard) card.classList.add('minimized');
+				});
+			}
+		});
+	}
+	if (typeof uiState.scrollY === 'number') {
+		document.body.scrollTop = uiState.scrollY;
+	}
+})();
 </script>
 </body>
 </html>`;

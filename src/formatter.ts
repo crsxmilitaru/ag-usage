@@ -93,7 +93,7 @@ function getCountdownSuffix(groups: Record<string, QuotaGroup>, categories: stri
     return '';
   }
 
-  if (!categories.some(cat => groups[cat]?.quota <= 0)) {
+  if (!categories.some(cat => groups[cat].quota <= 0)) {
     return '';
   }
 
@@ -139,10 +139,10 @@ export function formatStatusBarText(
     const weekly = getQuotaBucket(group, 'weekly');
     const fiveHour = getQuotaBucket(group, '5h');
     if (weekly || fiveHour) {
-      if (showCountdown && weekly?.quota === 0 && typeof weekly.resetTime === 'number') {
+      if (showCountdown && weekly && weekly.quota <= 0 && typeof weekly.resetTime === 'number') {
         return `${name} ${formatBucketCountdown(weekly.resetTime)}`;
       }
-      if (showCountdown && fiveHour?.quota === 0 && typeof fiveHour.resetTime === 'number') {
+      if (showCountdown && fiveHour && fiveHour.quota <= 0 && typeof fiveHour.resetTime === 'number') {
         const weeklySuffix = limitDisplay === 'both' && weekly
           ? ` (${formatQuotaPercent(weekly.quota)}%)`
           : '';
@@ -171,7 +171,7 @@ export function formatStatusBarText(
     const parts = categories.map(cat => formatGroup(cat, groups[cat]));
     const text = parts.join('   ');
     const truncated = text.length > MAX_STATUS_TEXT_LENGTH
-      ? text.slice(0, MAX_STATUS_TEXT_LENGTH - 1) + '…'
+      ? [...text].slice(0, MAX_STATUS_TEXT_LENGTH - 1).join('') + '…'
       : text;
     return `$(rocket) ${truncated}`;
   }
@@ -185,9 +185,6 @@ export function formatStatusBarText(
   }
 
   if (categories.length === 0) {
-    if (countdownSuffix) {
-      return `$(rocket)${countdownSuffix}`;
-    }
     return '$(rocket) 0%';
   }
 

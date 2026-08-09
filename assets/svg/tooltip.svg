@@ -1,0 +1,50 @@
+<svg width="520" height="210" viewBox="0 0 520 210" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="AG Usage Tooltip Preview">
+  <rect x="0" y="0" width="520" height="210" rx="12" fill="#18181b" stroke="#27272a" stroke-width="1.5"/>
+  
+  <!-- GEMINI Category Card -->
+  <g>
+    <rect x="16" y="16" width="236" height="152" rx="10" fill="#242427" stroke="#3f3f46" stroke-width="1"/>
+    <text x="30" y="35" fill="#a1a1aa" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif" font-size="11" font-weight="700" letter-spacing="1">GEMINI</text>
+    
+    <!-- GEMINI 5h Bucket (Top bucket box) -->
+    <rect x="24" y="44" width="220" height="54" rx="6" fill="#ffffff" fill-opacity="0.06" stroke="#3f3f46" stroke-opacity="0.6" stroke-width="1"/>
+    <text x="232" y="58" fill="#a1a1aa" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif" font-size="11" font-weight="600">5h</text>
+    <text x="34" y="74" fill="#22c55e" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif" font-size="20" font-weight="800">85%</text>
+    <text x="232" y="74" fill="#d4d4d8" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif" font-size="11" font-weight="600">1h 45m <tspan fill="#a1a1aa">(00:15)</tspan></text>
+    <rect x="34" y="83" width="200" height="5" rx="2.5" fill="#27272a"/>
+    <rect x="34" y="83" width="170" height="5" rx="2.5" fill="#22c55e"/>
+    
+    <!-- GEMINI Weekly Bucket (Bottom bucket box) -->
+    <rect x="24" y="104" width="220" height="54" rx="6" fill="#ffffff" fill-opacity="0.02" stroke="#3f3f46" stroke-opacity="0.3" stroke-width="1"/>
+    <text x="232" y="118" fill="#a1a1aa" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif" font-size="11" font-weight="600">Weekly</text>
+    <text x="34" y="134" fill="#eab308" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif" font-size="20" font-weight="800">48%</text>
+    <text x="232" y="134" fill="#d4d4d8" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif" font-size="11" font-weight="600">3d 14h <tspan fill="#a1a1aa">(11.08, 12:30)</tspan></text>
+    <rect x="34" y="143" width="200" height="5" rx="2.5" fill="#27272a"/>
+    <rect x="34" y="143" width="96" height="5" rx="2.5" fill="#eab308"/>
+  </g>
+
+  <!-- OTHER Category Card -->
+  <g>
+    <rect x="268" y="16" width="236" height="152" rx="10" fill="#242427" stroke="#3f3f46" stroke-width="1"/>
+    <text x="282" y="35" fill="#a1a1aa" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif" font-size="11" font-weight="700" letter-spacing="1">OTHER</text>
+    
+    <!-- OTHER 5h Bucket (Top bucket box) -->
+    <rect x="276" y="44" width="220" height="54" rx="6" fill="#ffffff" fill-opacity="0.06" stroke="#3f3f46" stroke-opacity="0.6" stroke-width="1"/>
+    <text x="484" y="58" fill="#a1a1aa" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif" font-size="11" font-weight="600">5h</text>
+    <text x="286" y="74" fill="#22c55e" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif" font-size="20" font-weight="800">90%</text>
+    <text x="484" y="74" fill="#d4d4d8" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif" font-size="11" font-weight="600">2h 10m <tspan fill="#a1a1aa">(00:40)</tspan></text>
+    <rect x="286" y="83" width="200" height="5" rx="2.5" fill="#27272a"/>
+    <rect x="286" y="83" width="180" height="5" rx="2.5" fill="#22c55e"/>
+    
+    <!-- OTHER Weekly Bucket (Bottom bucket box) -->
+    <rect x="276" y="104" width="220" height="54" rx="6" fill="#ffffff" fill-opacity="0.02" stroke="#3f3f46" stroke-opacity="0.3" stroke-width="1"/>
+    <text x="484" y="118" fill="#a1a1aa" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif" font-size="11" font-weight="600">Weekly</text>
+    <text x="286" y="134" fill="#ef4444" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif" font-size="20" font-weight="800">24%</text>
+    <text x="484" y="134" fill="#d4d4d8" text-anchor="end" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif" font-size="11" font-weight="600">2d 04h <tspan fill="#a1a1aa">(10.08, 02:15)</tspan></text>
+    <rect x="286" y="143" width="200" height="5" rx="2.5" fill="#27272a"/>
+    <rect x="286" y="143" width="48" height="5" rx="2.5" fill="#ef4444"/>
+  </g>
+
+  <!-- Footer Links Bar -->
+  <text x="260" y="192" fill="#a1a1aa" text-anchor="middle" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif" font-size="12" font-weight="600"><tspan fill="#ffffff" font-weight="700">Google AI Pro</tspan> · <tspan fill="#3b82f6">Dashboard</tspan> · <tspan fill="#3b82f6">Models</tspan> · <tspan fill="#3b82f6">Settings</tspan></text>
+</svg>

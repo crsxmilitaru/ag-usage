@@ -1,0 +1,182 @@
+<svg width="842" height="218" viewBox="0 0 842 218" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="AG Usage Dashboard Panel Preview">
+  <defs>
+    <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#22c55e" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#22c55e" stop-opacity="0.0"/>
+    </linearGradient>
+  </defs>
+
+  <style>
+    .hdr-title { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 11px; font-weight: 700; fill: #a1a1aa; letter-spacing: 1px; }
+    .subtext { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 10px; font-weight: 500; fill: #a1a1aa; }
+    .legend-text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 9px; font-weight: 500; fill: #a1a1aa; }
+  </style>
+
+  <!-- Background Rect (Matching Tooltip Style) -->
+  <rect x="0" y="0" width="842" height="218" rx="12" fill="#18181b" stroke="#27272a" stroke-width="1.5"/>
+
+  <!-- ================= CARD 1: SERVICE HEALTH ================= -->
+  <g transform="translate(14, 14)">
+    <rect x="0" y="0" width="262" height="190" rx="10" fill="#1e1e22" stroke="#2b2b30" stroke-width="1"/>
+    <text x="14" y="22" class="hdr-title">SERVICE HEALTH</text>
+    
+    <!-- Sparkline Inner Container -->
+    <rect x="12" y="32" width="238" height="118" rx="6" fill="#141416" stroke="#27272a" stroke-width="1"/>
+    <text x="131" y="48" text-anchor="middle" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="10" font-weight="700" fill="#a1a1aa" letter-spacing="0.5">PUBLIC STATUS →</text>
+    
+    <!-- Status Bar Chart (Full Width, Spikes in Red) -->
+    <g transform="translate(18, 134)">
+      <rect x="0" y="-12" width="5" height="12" rx="1" fill="#22c55e"/>
+      <rect x="7" y="-8" width="5" height="8" rx="1" fill="#22c55e"/>
+      <rect x="14" y="-16" width="5" height="16" rx="1" fill="#22c55e"/>
+      <rect x="21" y="-6" width="5" height="6" rx="1" fill="#22c55e"/>
+      <rect x="28" y="-10" width="5" height="10" rx="1" fill="#22c55e"/>
+      <rect x="35" y="-38" width="5" height="38" rx="1" fill="#ef4444"/>
+      <rect x="42" y="-10" width="5" height="10" rx="1" fill="#22c55e"/>
+      <rect x="49" y="-8" width="5" height="8" rx="1" fill="#22c55e"/>
+      <rect x="56" y="-14" width="5" height="14" rx="1" fill="#22c55e"/>
+      <rect x="63" y="-6" width="5" height="6" rx="1" fill="#22c55e"/>
+      <rect x="70" y="-18" width="5" height="18" rx="1" fill="#22c55e"/>
+      <rect x="77" y="-24" width="5" height="24" rx="1" fill="#22c55e"/>
+      <rect x="84" y="-10" width="5" height="10" rx="1" fill="#22c55e"/>
+      <rect x="91" y="-8" width="5" height="8" rx="1" fill="#22c55e"/>
+      <rect x="98" y="-46" width="5" height="46" rx="1" fill="#ef4444"/>
+      <rect x="105" y="-8" width="5" height="8" rx="1" fill="#22c55e"/>
+      <rect x="112" y="-6" width="5" height="6" rx="1" fill="#22c55e"/>
+      <rect x="119" y="-12" width="5" height="12" rx="1" fill="#22c55e"/>
+      <rect x="126" y="-16" width="5" height="16" rx="1" fill="#22c55e"/>
+      <rect x="133" y="-8" width="5" height="8" rx="1" fill="#22c55e"/>
+      <rect x="140" y="-54" width="5" height="54" rx="1" fill="#ef4444"/>
+      <rect x="147" y="-10" width="5" height="10" rx="1" fill="#22c55e"/>
+      <rect x="154" y="-8" width="5" height="8" rx="1" fill="#22c55e"/>
+      <rect x="161" y="-14" width="5" height="14" rx="1" fill="#22c55e"/>
+      <rect x="168" y="-20" width="5" height="20" rx="1" fill="#22c55e"/>
+      <rect x="175" y="-10" width="5" height="10" rx="1" fill="#22c55e"/>
+      <rect x="182" y="-42" width="5" height="42" rx="1" fill="#ef4444"/>
+      <rect x="189" y="-16" width="5" height="16" rx="1" fill="#22c55e"/>
+      <rect x="196" y="-10" width="5" height="10" rx="1" fill="#22c55e"/>
+      <rect x="203" y="-22" width="5" height="22" rx="1" fill="#22c55e"/>
+      <rect x="210" y="-8" width="5" height="8" rx="1" fill="#22c55e"/>
+      <rect x="217" y="-14" width="5" height="14" rx="1" fill="#22c55e"/>
+    </g>
+
+    <!-- Status Legend -->
+    <g transform="translate(18, 162)">
+      <circle cx="6" cy="6" r="3" fill="#22c55e"/>
+      <text x="13" y="9" class="legend-text">Service up</text>
+
+      <circle cx="78" cy="6" r="3" fill="#eab308"/>
+      <text x="85" y="9" class="legend-text">Possible outage</text>
+
+      <circle cx="166" cy="6" r="3" fill="#ef4444"/>
+      <text x="173" y="9" class="legend-text">Likely outage</text>
+    </g>
+  </g>
+
+  <!-- ================= CARD 2: GEMINI ================= -->
+  <g transform="translate(290, 14)">
+    <rect x="0" y="0" width="262" height="190" rx="10" fill="#1e1e22" stroke="#2b2b30" stroke-width="1"/>
+    <text x="14" y="22" class="hdr-title">GEMINI</text>
+
+    <!-- Sparkline / History Chart Container -->
+    <rect x="12" y="32" width="238" height="146" rx="6" fill="#141416" stroke="#27272a" stroke-width="1"/>
+    
+    <!-- Grid Lines -->
+    <line x1="20" y1="62" x2="242" y2="62" stroke="#27272a" stroke-dasharray="2,2"/>
+    <line x1="20" y1="92" x2="242" y2="92" stroke="#27272a" stroke-dasharray="2,2"/>
+    <line x1="20" y1="122" x2="242" y2="122" stroke="#27272a" stroke-dasharray="2,2"/>
+
+    <!-- Area Gradient Fill -->
+    <polygon points="24,112 44,118 64,122 84,126 104,128 124,120 144,88 164,78 184,78 204,78 224,78 238,78 238,140 24,140" fill="url(#chartGrad)"/>
+
+    <!-- Line Path -->
+    <path d="M 24 112 L 44 118 L 64 122 L 84 126 L 104 128 L 124 120 L 144 88 L 164 78 L 184 78 L 204 78 L 224 78 L 238 78" fill="none" stroke="#22c55e" stroke-width="2"/>
+    
+    <!-- Chart Nodes -->
+    <circle cx="24" cy="112" r="3" fill="#a1a1aa"/>
+    <circle cx="44" cy="118" r="3" fill="#a1a1aa"/>
+    <circle cx="64" cy="122" r="3" fill="#a1a1aa"/>
+    <circle cx="84" cy="126" r="3" fill="#a1a1aa"/>
+    <circle cx="104" cy="128" r="3" fill="#a1a1aa"/>
+    <circle cx="124" cy="120" r="3" fill="#a1a1aa"/>
+    <circle cx="144" cy="88" r="3.5" fill="#22c55e" stroke="#ffffff" stroke-width="1"/>
+    <circle cx="164" cy="78" r="3" fill="#22c55e"/>
+    <circle cx="184" cy="78" r="3" fill="#22c55e"/>
+    <circle cx="204" cy="78" r="3" fill="#22c55e"/>
+    <circle cx="224" cy="78" r="3" fill="#22c55e"/>
+    <circle cx="238" cy="78" r="3" fill="#22c55e"/>
+
+    <!-- Expand Button Text -->
+    <text x="131" y="162" text-anchor="middle" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="9" font-weight="600" fill="#a1a1aa">EXPAND ∨</text>
+  </g>
+
+  <!-- ================= CARD 3: USAGE ACTIVITY ================= -->
+  <g transform="translate(566, 14)">
+    <rect x="0" y="0" width="262" height="190" rx="10" fill="#1e1e22" stroke="#2b2b30" stroke-width="1"/>
+    <text x="14" y="20" class="hdr-title">USAGE ACTIVITY</text>
+    
+    <!-- Days Header -->
+    <g transform="translate(56, 42)" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="9" font-weight="600" fill="#71717a">
+      <text x="0">M</text><text x="24">T</text><text x="48">W</text><text x="72">T</text><text x="96">F</text><text x="120">S</text><text x="144">S</text>
+    </g>
+
+    <!-- Heatmap Grid (7 cols x 5 rows) -->
+    <g transform="translate(52, 54)">
+      <!-- Row 1 -->
+      <rect x="0" y="0" width="16" height="16" rx="3" fill="#242427"/>
+      <rect x="24" y="0" width="16" height="16" rx="3" fill="#242427"/>
+      <rect x="48" y="0" width="16" height="16" rx="3" fill="#242427"/>
+      <rect x="72" y="0" width="16" height="16" rx="3" fill="#242427"/>
+      <rect x="96" y="0" width="16" height="16" rx="3" fill="#242427"/>
+      <rect x="120" y="0" width="16" height="16" rx="3" fill="#15803d"/>
+      <rect x="144" y="0" width="16" height="16" rx="3" fill="#242427"/>
+
+      <!-- Row 2 -->
+      <rect x="0" y="20" width="16" height="16" rx="3" fill="#242427"/>
+      <rect x="24" y="20" width="16" height="16" rx="3" fill="#22c55e"/>
+      <rect x="48" y="20" width="16" height="16" rx="3" fill="#166534"/>
+      <rect x="72" y="20" width="16" height="16" rx="3" fill="#22c55e"/>
+      <rect x="96" y="20" width="16" height="16" rx="3" fill="#15803d" stroke="#22c55e" stroke-width="1.5"/>
+      <rect x="120" y="20" width="16" height="16" rx="3" fill="#242427"/>
+      <rect x="144" y="20" width="16" height="16" rx="3" fill="#242427"/>
+
+      <!-- Row 3 -->
+      <rect x="0" y="40" width="16" height="16" rx="3" fill="#242427"/>
+      <rect x="24" y="40" width="16" height="16" rx="3" fill="#242427"/>
+      <rect x="48" y="40" width="16" height="16" rx="3" fill="#242427"/>
+      <rect x="72" y="40" width="16" height="16" rx="3" fill="#242427"/>
+      <rect x="96" y="40" width="16" height="16" rx="3" fill="#242427"/>
+      <rect x="120" y="40" width="16" height="16" rx="3" fill="#242427"/>
+      <rect x="144" y="40" width="16" height="16" rx="3" fill="#242427"/>
+
+      <!-- Row 4 -->
+      <rect x="0" y="60" width="16" height="16" rx="3" fill="#242427"/>
+      <rect x="24" y="60" width="16" height="16" rx="3" fill="#242427"/>
+      <rect x="48" y="60" width="16" height="16" rx="3" fill="#242427"/>
+      <rect x="72" y="60" width="16" height="16" rx="3" fill="#242427"/>
+      <rect x="96" y="60" width="16" height="16" rx="3" fill="#242427"/>
+      <rect x="120" y="60" width="16" height="16" rx="3" fill="#242427"/>
+      <rect x="144" y="60" width="16" height="16" rx="3" fill="#242427"/>
+
+      <!-- Row 5 -->
+      <rect x="0" y="80" width="16" height="16" rx="3" fill="#242427"/>
+      <rect x="24" y="80" width="16" height="16" rx="3" fill="#242427"/>
+      <rect x="48" y="80" width="16" height="16" rx="3" fill="#242427"/>
+      <rect x="72" y="80" width="16" height="16" rx="3" fill="#242427"/>
+      <rect x="96" y="80" width="16" height="16" rx="3" fill="#242427"/>
+      <rect x="120" y="80" width="16" height="16" rx="3" fill="#242427"/>
+      <rect x="144" y="80" width="16" height="16" rx="3" fill="#242427"/>
+    </g>
+
+    <!-- Legend Horizontal Bottom -->
+    <g transform="translate(61, 166)">
+      <text x="0" y="9" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="9" font-weight="600" fill="#a1a1aa">Less</text>
+      <rect x="26" y="1" width="14" height="10" rx="2" fill="#242427"/>
+      <rect x="44" y="1" width="14" height="10" rx="2" fill="#166534"/>
+      <rect x="62" y="1" width="14" height="10" rx="2" fill="#15803d"/>
+      <rect x="80" y="1" width="14" height="10" rx="2" fill="#16a34a"/>
+      <rect x="98" y="1" width="14" height="10" rx="2" fill="#22c55e"/>
+      <text x="118" y="9" font-family="-apple-system,BlinkMacSystemFont,sans-serif" font-size="9" font-weight="600" fill="#a1a1aa">More</text>
+    </g>
+  </g>
+</svg>

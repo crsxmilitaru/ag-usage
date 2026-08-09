@@ -89,7 +89,7 @@ export class QuotaHistory {
     this.entries = filteredEntries;
   }
 
-  recordSnapshot(groups: Record<string, { quota: number; resetTime: number | null }>): QuotaHistoryEntry[] {
+  recordSnapshot(groups: Record<string, { quota: number; resetTime: number | null }>): void {
     const config = vscode.workspace.getConfiguration(CONFIG_NAMESPACE);
     const enableHistoryTracking = config.get<boolean>('enableHistoryTracking', true);
 
@@ -151,8 +151,6 @@ export class QuotaHistory {
 
     this.prune();
     this.pruneDailyUsage();
-
-    return newEntries;
   }
 
   private recordDailyConsumption(category: string, consumed: number): void {
@@ -166,6 +164,11 @@ export class QuotaHistory {
   }
 
   private pruneDailyUsage(): void {
+    const config = vscode.workspace.getConfiguration(CONFIG_NAMESPACE);
+    if (!config.get<boolean>('enableHistoryTracking', true)) {
+      this.dailyUsage = [];
+      return;
+    }
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - HEATMAP_MAX_DAYS);
     const cutoffStr = formatLocalDate(cutoff);

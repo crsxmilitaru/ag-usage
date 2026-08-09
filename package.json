@@ -1,6 +1,6 @@
 {
   "name": "ag-usage",
-  "version": "1.9.2",
+  "version": "1.9.3",
   "displayName": "AG Usage",
   "description": "Track usage of Antigravity AI models",
   "author": "Cristian Militaru",
@@ -132,7 +132,7 @@
         "ag-usage.notifyOnFullQuota": {
           "type": "boolean",
           "default": false,
-          "description": "Show a notification when a model category reaches 100% usage."
+          "description": "Show a notification when a model category's quota refills to 100%."
         },
         "ag-usage.lowQuotaNotificationThreshold": {
           "type": "number",
@@ -232,20 +232,19 @@
     "compile": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --minify --tree-shaking=true",
     "watch": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --sourcemap --watch",
     "package": "npx vsce package",
+    "convert-svg": "node scripts/convert-svg.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "publish:ovsx": "npx ovsx publish"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/node": "^26.1.2",
+    "@resvg/resvg-js": "^2.6.2",
+    "@types/node": "^26.2.0",
     "@types/vscode": "^1.107.0",
-    "esbuild": "^0.28.1",
-    "eslint": "^10.8.0",
+    "esbuild": "^0.28.2",
+    "eslint": "^10.8.1",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.65.0"
-  },
-  "allowScripts": {
-    "esbuild@0.28.1": true
+    "typescript-eslint": "^8.66.0"
   }
 }
