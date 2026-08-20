@@ -1,6 +1,6 @@
 {
   "name": "ag-usage",
-  "version": "1.9.3",
+  "version": "2.0.0",
   "displayName": "AG Usage",
   "description": "Track usage of Antigravity AI models",
   "author": "Cristian Militaru",
@@ -235,7 +235,9 @@
     "convert-svg": "node scripts/convert-svg.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "publish:ovsx": "npx ovsx publish"
+    "publish:ovsx": "npx ovsx publish",
+    "publish:vsce": "npx vsce publish",
+    "publish": "npm run publish:ovsx && npm run publish:vsce"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -245,6 +247,6 @@
     "esbuild": "^0.28.2",
     "eslint": "^10.8.1",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.66.0"
+    "typescript-eslint": "^8.67.0"
   }
 }

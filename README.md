@@ -7,6 +7,8 @@
 </p>
 
 <p align="center">
+  <a href="https://marketplace.visualstudio.com/items?itemName=crsx.ag-usage"><img src="https://vsmarketplacebadges.dev/version/crsx.ag-usage.png" alt="VS Marketplace Version"></a>
+  <a href="https://marketplace.visualstudio.com/items?itemName=crsx.ag-usage"><img src="https://vsmarketplacebadges.dev/downloads/crsx.ag-usage.png" alt="VS Marketplace Downloads"></a>
   <a href="https://open-vsx.org/extension/crsx/ag-usage"><img src="https://img.shields.io/open-vsx/v/crsx/ag-usage?logo=open-vsx&label=Open%20VSX&logoColor=white" alt="Open VSX Version"></a>
   <a href="https://open-vsx.org/extension/crsx/ag-usage"><img src="https://img.shields.io/open-vsx/dt/crsx/ag-usage" alt="Open VSX Downloads"></a>
   <br>
@@ -46,13 +48,16 @@
 
 - **Cross-platform**: Fully compatible with **Windows**, **macOS**, and **Linux**.
 
+- **Works in VS Code too**: Detects both the Antigravity IDE's `language_server` process and the `agy` hub started by the Google Antigravity extension for VS Code.
+
 
 ## 📖 Usage
 
 1. **Install** the extension.
-2. Look for the 🚀 icon in the right part of the bottom status bar.
-3. **Hover** over the icon to view detailed usage per model category.
-4. **Click** the icon to refresh data manually.
+2. Make sure the **Antigravity IDE** or the **Antigravity extension for VS Code** ([`google.google-antigravity`](https://marketplace.visualstudio.com/items?itemName=Google.google-antigravity)) is running and logged in.
+3. Look for the 🚀 icon in the right part of the bottom status bar.
+4. **Hover** over the icon to view detailed usage per model category.
+5. **Click** the icon to refresh data manually.
 
 ## 📝 Configuration
 

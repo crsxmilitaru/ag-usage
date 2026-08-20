@@ -1,6 +1,7 @@
 import * as crypto from 'crypto';
 import * as vscode from 'vscode';
 import { BUCKET_OPACITY, CATEGORY_ORDER, CONFIG_NAMESPACE, PROGRESS_STOPS, STATUSGATOR_SERVICE_URL, THEME_COLORS } from './constants';
+import { isAntigravityIde } from './environment';
 import { formatFullTimestamp, formatLocalDate, formatQuotaPercent, formatRelativeTime, formatRemainingTimeSeparate, resolveLocale } from './formatter';
 import { QuotaHistory, QuotaHistoryEntry } from './history';
 import { DailyUsageEntry, PublicServiceStatus, QuotaGroup, ServiceStatus, UsageStatistics } from './types';
@@ -1307,16 +1308,21 @@ function buildTopRow(statsData: UsageStatistics | null): string {
 	if (credits) {
 		const isLow = credits.creditAmount <= credits.minimumCreditAmountForUsage;
 		const colorClass = isLow ? 'credits-low' : 'credits-ok';
-		creditsCard = `
-			<div class="quota-card clickable-card" role="button" tabindex="0" data-action="openModels">
-				<div class="credits-info">
-					<span class="credits-label">Extra Credits</span>
-					<span class="credits-amount ${colorClass}">${credits.creditAmount.toLocaleString()}</span>
-				</div>
+		const showModelsAction = isAntigravityIde();
+		const interactiveAttrs = showModelsAction ? ' class="quota-card clickable-card" role="button" tabindex="0" data-action="openModels"' : ' class="quota-card"';
+		const modelsOverlay = showModelsAction
+			? `
 				<div class="card-action-overlay">
 					<span>Models</span>
 					<svg width="14" height="14" viewBox="0 0 16 16"><path fill="currentColor" d="M8.2 3.2l5.4 5.4-5.4 5.4-.7-.7 4.2-4.2H2v-1h9.7L7.5 3.9l.7-.7z"/></svg>
-				</div>
+				</div>`
+			: '';
+		creditsCard = `
+			<div${interactiveAttrs}>
+				<div class="credits-info">
+					<span class="credits-label">Extra Credits</span>
+					<span class="credits-amount ${colorClass}">${credits.creditAmount.toLocaleString()}</span>
+				</div>${modelsOverlay}
 			</div>`;
 	}
 

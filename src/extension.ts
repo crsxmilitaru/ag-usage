@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { extractCsrfToken, fetchStats, findAntigravityProcess, findListeningPorts, findValidPort } from './api';
+import { discoverConnection, fetchStats } from './api';
 import {
 	CACHE_TTL_MS,
 	CONFIG_NAMESPACE,
@@ -7,6 +7,7 @@ import {
 	EXPORT_HISTORY_COMMAND,
 	EXTENSION_TITLE,
 	FAILED_REFRESH_DELAY_MS,
+	GOOGLE_ANTIGRAVITY_EXTENSION_ID,
 	INITIAL_DELAY_MS,
 	MAX_FAILED_REFRESH_DELAY_MS,
 	MIN_DISPLAY_DELAY_MS,
@@ -19,6 +20,7 @@ import {
 	USE_MOCK_DATA
 } from './constants';
 import { createErrorTooltip } from './formatter';
+import { isAntigravityIde } from './environment';
 import { QuotaHistory, QuotaHistoryEntry } from './history';
 import { NotificationManager } from './notifications';
 import { UsageViewProvider } from './panel';
@@ -44,6 +46,10 @@ async function loadMockUsageStatistics(): Promise<UsageStatistics> {
 		};
 	}
 	return { groups, plan: testData.usageStatistics.plan, planName: testData.usageStatistics.planName, credits: testData.usageStatistics.credits };
+}
+
+function isProcessNotFoundError(error: Error): boolean {
+	return /process not found/i.test(error.message);
 }
 
 class ExtensionState implements vscode.Disposable {
@@ -153,9 +159,9 @@ class ExtensionState implements vscode.Disposable {
 let state: ExtensionState | undefined;
 
 export function activate(context: vscode.ExtensionContext) {
-	if (!vscode.env.appName.toLowerCase().includes('antigravity')) {
+	if (!isAntigravityIde() && !vscode.extensions.getExtension(GOOGLE_ANTIGRAVITY_EXTENSION_ID)) {
 		vscode.window.showWarningMessage(
-			'AG Usage is designed exclusively for the Antigravity IDE. It will not work correctly in this editor.',
+			'AG Usage requires the Antigravity IDE or the Google Antigravity extension to be running.',
 			'I understand'
 		);
 	}
@@ -542,29 +548,13 @@ async function refresh(showRefreshing: boolean, options: RefreshOptions = {}) {
 			}
 
 			currentState.log('Searching for Antigravity process');
-			const processInfo = await findAntigravityProcess();
+			const discovered = await discoverConnection(message => currentState.log(message));
 			if (!currentState.isActive) { return; }
-			currentState.log(`Found process with PID: ${processInfo.pid}`);
+			currentState.log(`Connected to Antigravity on port: ${discovered.port}`);
 
-			const csrfToken = extractCsrfToken(processInfo.cmd);
-			if (!csrfToken) {
-				throw new Error('CSRF token not found in process command line');
-			}
+			currentState.cachedConnection = { ...discovered, timestamp: Date.now() };
 
-			const ports = await findListeningPorts(processInfo.pid);
-			if (!currentState.isActive) { return; }
-			if (ports.length === 0) {
-				throw new Error('No listening ports found for the Antigravity process');
-			}
-			currentState.log(`Found ${ports.length} listening port(s): ${ports.join(', ')}`);
-
-			const port = await findValidPort(ports, csrfToken);
-			if (!currentState.isActive) { return; }
-			currentState.log(`Validated port: ${port}`);
-
-			currentState.cachedConnection = { port, csrfToken, timestamp: Date.now() };
-
-			const [fetchedStatsData, publicStatus] = await Promise.all([fetchStats(port, csrfToken), publicStatusPromise, minDelay]);
+			const [fetchedStatsData, publicStatus] = await Promise.all([fetchStats(discovered.port, discovered.csrfToken), publicStatusPromise, minDelay]);
 			if (!currentState.isActive) { return; }
 			applyStatsUpdate(fetchedStatsData, 'Refresh completed successfully', publicStatus);
 		} catch (error) {
@@ -577,10 +567,17 @@ async function refresh(showRefreshing: boolean, options: RefreshOptions = {}) {
 			if (!currentState.isActive) { return; }
 			const err = error instanceof Error ? error : new Error(String(error));
 			currentState.log('Refresh failed', err);
-			currentState.statusBarItem.text = `$(error) ${EXTENSION_TITLE}`;
-			currentState.statusBarItem.tooltip = createErrorTooltip(err);
-			currentState.statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
-			currentState.statusBarItem.color = new vscode.ThemeColor('statusBarItem.errorForeground');
+			if (!isAntigravityIde() && isProcessNotFoundError(err)) {
+				currentState.statusBarItem.text = `$(rocket) ${EXTENSION_TITLE}`;
+				currentState.statusBarItem.tooltip = 'The Antigravity extension is not started or initialized. Start it, then click to retry.';
+				currentState.statusBarItem.color = undefined;
+				currentState.statusBarItem.backgroundColor = undefined;
+			} else {
+				currentState.statusBarItem.text = `$(error) ${EXTENSION_TITLE}`;
+				currentState.statusBarItem.tooltip = createErrorTooltip(err);
+				currentState.statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
+				currentState.statusBarItem.color = new vscode.ThemeColor('statusBarItem.errorForeground');
+			}
 			currentState.usageViewProvider.update(currentState.lastStatsData, currentState.quotaHistory, currentState.serviceStatus, currentState.publicServiceStatus);
 		}
 	};

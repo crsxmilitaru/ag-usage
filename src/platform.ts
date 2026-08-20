@@ -12,19 +12,21 @@ export interface PlatformStrategy {
 class WindowsPlatform implements PlatformStrategy {
   async getProcesses(): Promise<ProcessInfo[]> {
     let stdout: string;
-    const escapedIdentifier = this.escapeLikePattern(PROCESS_IDENTIFIERS.LANGUAGE_SERVER);
+    const escapedLanguageServer = this.escapeLikePattern(PROCESS_IDENTIFIERS.LANGUAGE_SERVER);
+    const escapedHubPort = this.escapeLikePattern(PROCESS_IDENTIFIERS.HUB_PORT);
+    const processFilter = `CommandLine LIKE '%${escapedLanguageServer}%' OR CommandLine LIKE '%${escapedHubPort}%'`;
     try {
       stdout = await executeCommand('powershell', [
         '-NoProfile',
         '-Command',
-        `Get-CimInstance Win32_Process -Filter "CommandLine LIKE '%${escapedIdentifier}%'" | Select-Object ProcessId, CommandLine | ForEach-Object { "$($_.ProcessId)|$($_.CommandLine)" }`
+        `Get-CimInstance Win32_Process -Filter "${processFilter}" | Select-Object ProcessId, CommandLine | ForEach-Object { "$($_.ProcessId)|$($_.CommandLine)" }`
       ]);
     } catch {
       try {
         stdout = await executeCommand('wmic', [
           'process',
           'where',
-          `CommandLine like '%${escapedIdentifier}%'`,
+          `CommandLine like '%${escapedLanguageServer}%' or CommandLine like '%${escapedHubPort}%'`,
           'get',
           'CommandLine,ProcessId',
           '/format:csv'
@@ -150,7 +152,7 @@ class UnixPlatform implements PlatformStrategy {
 
     const candidates = stdout
       .split('\n')
-      .filter(line => line.includes(PROCESS_IDENTIFIERS.LANGUAGE_SERVER))
+      .filter(line => line.includes(PROCESS_IDENTIFIERS.LANGUAGE_SERVER) || line.includes(PROCESS_IDENTIFIERS.HUB_PORT))
       .map(line => {
         const trimmed = line.trim();
         const match = trimmed.match(/^(\d+)\s+(.+)$/);

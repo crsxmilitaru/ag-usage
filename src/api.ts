@@ -13,7 +13,9 @@ import { getPlatformStrategy } from './platform';
 import { ProcessId, ProcessInfo, QuotaBucket, QuotaGroup, ServerQuotaSummaryResponse, ServerUserStatusResponse, UsageStatistics } from './types';
 import { delay, getErrorMessage, MAX_BUFFER_SIZE, sortQuotaBuckets, validatePid, validatePort } from './utils';
 
-export function extractCsrfToken(cmd: string): string | undefined {
+type DiscoveryLogger = (message: string) => void;
+
+function extractCsrfToken(cmd: string): string | undefined {
   const patterns = [
     /--csrf_token[=\s]+"([^"]+)"/i,
     /--csrf_token[=\s]+'([^']+)'/i,
@@ -28,6 +30,30 @@ export function extractCsrfToken(cmd: string): string | undefined {
   return undefined;
 }
 
+export function extractHubPort(cmd: string): number | undefined {
+  const match = cmd.match(/--hub-port(?:=|\s+)(?:"(\d{1,5})"|'(\d{1,5})'|(\d{1,5}))/i);
+  if (!match) {
+    return undefined;
+  }
+  const port = parseInt(match[1] ?? match[2] ?? match[3], 10);
+  return validatePort(port) ? port : undefined;
+}
+
+function extractAppConfigCsrfToken(html: string, log: DiscoveryLogger): string | undefined {
+  const match = html.match(/__APP_CONFIG__\s*=\s*(\{.*?\})\s*;/s);
+  if (!match?.[1]) {
+    return undefined;
+  }
+  try {
+    const config = JSON.parse(match[1]) as { csrfToken?: unknown };
+    const token = config.csrfToken;
+    return typeof token === 'string' && token.trim().length > 0 ? token.trim() : undefined;
+  } catch (error) {
+    log(`Failed to parse the Antigravity hub configuration: ${getErrorMessage(error)}`);
+    return undefined;
+  }
+}
+
 const LOCALHOST = '127.0.0.1';
 
 const API_ENDPOINTS = {
@@ -36,20 +62,19 @@ const API_ENDPOINTS = {
   GET_USER_STATUS: '/exa.language_server_pb.LanguageServerService/GetUserStatus'
 };
 
-export async function findAntigravityProcess(): Promise<ProcessInfo> {
-  const strategy = getPlatformStrategy();
-  const processes = await strategy.getProcesses();
+function isHubProcessCommand(cmd: string): boolean {
+  const lowerCmd = cmd.toLowerCase();
+  return lowerCmd.includes(PROCESS_IDENTIFIERS.HUB_PORT) &&
+    (lowerCmd.includes(PROCESS_IDENTIFIERS.ANTIGRAVITY) || lowerCmd.includes(PROCESS_IDENTIFIERS.GEMINI_DIR));
+}
 
+function getMatchingProcesses(processes: ProcessInfo[]): ProcessInfo[] {
   const matchingProcesses = processes.filter((p: ProcessInfo) => {
     const cmd = p.cmd.toLowerCase();
-    return extractCsrfToken(p.cmd) !== undefined &&
-      (cmd.includes(PROCESS_IDENTIFIERS.ANTIGRAVITY.toLowerCase()) ||
-        cmd.includes(PROCESS_IDENTIFIERS.CSRF_TOKEN.toLowerCase()));
+    const hasCsrfToken = extractCsrfToken(p.cmd) !== undefined;
+    return (hasCsrfToken && cmd.includes(PROCESS_IDENTIFIERS.CSRF_TOKEN.toLowerCase())) ||
+      isHubProcessCommand(cmd);
   });
-
-  if (matchingProcesses.length === 0) {
-    throw new Error('Antigravity process with CSRF token not found. Make sure Antigravity is running.');
-  }
 
   const scoreProcess = (process: ProcessInfo): number => {
     const cmd = process.cmd.toLowerCase();
@@ -58,6 +83,7 @@ export async function findAntigravityProcess(): Promise<ProcessInfo> {
     if (cmd.includes('--override_ide_name antigravity')) { score += 6; }
     if (cmd.includes('\\antigravity\\resources\\bin\\language_server.exe')) { score += 6; }
     if (cmd.includes('--app_data_dir antigravity')) { score += 4; }
+    if (isHubProcessCommand(cmd) && cmd.includes(`--app_data_dir=${PROCESS_IDENTIFIERS.ANTIGRAVITY}`)) { score += 5; }
     if (cmd.includes('--app_data_dir antigravity-ide')) { score -= 2; }
     return score;
   };
@@ -66,10 +92,12 @@ export async function findAntigravityProcess(): Promise<ProcessInfo> {
     const scoreDiff = scoreProcess(b) - scoreProcess(a);
     return scoreDiff !== 0 ? scoreDiff : b.pid - a.pid;
   });
-  return matchingProcesses[0];
+  return matchingProcesses;
 }
 
-export async function findListeningPorts(pid: ProcessId): Promise<number[]> {
+const NOT_FOUND_ERROR = 'Antigravity process not found. Make sure the Antigravity IDE or the Google Antigravity extension is running.';
+
+async function findListeningPorts(pid: ProcessId): Promise<number[]> {
   if (!validatePid(pid)) {
     throw new Error(`Invalid process ID: ${pid}`);
   }
@@ -78,6 +106,120 @@ export async function findListeningPorts(pid: ProcessId): Promise<number[]> {
   const rawPorts = await strategy.getPorts(pid);
 
   return Array.from(new Set(rawPorts));
+}
+
+async function fetchHubCsrfToken(port: number, log: DiscoveryLogger): Promise<string> {
+  // A freshly started hub may refuse connections or serve 404 until its web
+  // UI is mounted after login, so retry transient failures briefly.
+  const maxAttempts = 3;
+  let lastFailure = new Error(`CSRF token not found on the Antigravity hub page (port ${port})`);
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (attempt > 0) {
+      await delay(RETRY_DELAY_MS * 4);
+    }
+    try {
+      const csrfToken = extractAppConfigCsrfToken(await fetchHubRootPage(port), log);
+      if (csrfToken) {
+        return csrfToken;
+      }
+      log(`Hub page on port ${port} did not contain a usable CSRF token`);
+    } catch (error) {
+      lastFailure = error instanceof Error ? error : new Error(String(error));
+    }
+  }
+  throw lastFailure;
+}
+
+function fetchHubRootPage(port: number): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    if (!validatePort(port)) {
+      return reject(new Error(`Invalid port: ${port}`));
+    }
+
+    let settled = false;
+    const settle = (fn: () => void) => {
+      if (settled) { return; }
+      settled = true;
+      fn();
+    };
+
+    const request = http.get(
+      { hostname: LOCALHOST, port, path: '/', method: 'GET', timeout: REQUEST_TIMEOUT_MS },
+      (response) => {
+        response.setEncoding('utf8');
+        let pageData = '';
+
+        response.on('data', (chunk: string) => {
+          pageData += chunk;
+          if (pageData.length > MAX_BUFFER_SIZE) {
+            request.destroy();
+            settle(() => reject(new Error(`Response exceeded ${MAX_BUFFER_SIZE} bytes`)));
+          }
+        });
+        response.on('end', () => settle(() => resolve(pageData)));
+        response.on('error', (err) => settle(() => reject(err)));
+      }
+    );
+
+    request.on('error', (err) => settle(() => reject(err)));
+
+    request.on('timeout', () => {
+      request.destroy();
+      settle(() => reject(new Error('Request timed out')));
+    });
+  });
+}
+
+export interface DiscoveredConnection {
+  port: number;
+  csrfToken: string;
+}
+
+async function resolveProcessConnection(processInfo: ProcessInfo, log: DiscoveryLogger): Promise<DiscoveredConnection> {
+  const csrfToken = extractCsrfToken(processInfo.cmd);
+  if (csrfToken) {
+    const ports = await findListeningPorts(processInfo.pid);
+    if (ports.length === 0) {
+      throw new Error('No listening ports found for the Antigravity process');
+    }
+    log(`Found ${ports.length} listening port(s): ${ports.join(', ')}`);
+
+    const port = await findValidPort(ports, csrfToken);
+    log(`Validated port: ${port}`);
+    return { port, csrfToken };
+  }
+
+  const hubPort = extractHubPort(processInfo.cmd);
+  if (hubPort !== undefined) {
+    const hubCsrfToken = await fetchHubCsrfToken(hubPort, log);
+    const port = await findValidPort([hubPort], hubCsrfToken);
+    log(`Validated hub port: ${port}`);
+    return { port, csrfToken: hubCsrfToken };
+  }
+
+  throw new Error('Process has neither a CSRF token nor a hub port in its command line');
+}
+
+export async function discoverConnection(log: DiscoveryLogger): Promise<DiscoveredConnection> {
+  const strategy = getPlatformStrategy();
+  const processes = await strategy.getProcesses();
+  const candidates = getMatchingProcesses(processes);
+
+  if (candidates.length === 0) {
+    throw new Error(NOT_FOUND_ERROR);
+  }
+
+  const failures: string[] = [];
+  for (const processInfo of candidates) {
+    log(`Found candidate process with PID: ${processInfo.pid}`);
+    try {
+      return await resolveProcessConnection(processInfo, log);
+    } catch (error) {
+      failures.push(`PID ${processInfo.pid}: ${getErrorMessage(error)}`);
+    }
+  }
+
+  throw new Error(`Could not connect to any Antigravity process. ${failures.join(' | ')}`);
 }
 
 async function checkLegacyPort(port: number, csrfToken: string): Promise<void> {
@@ -100,7 +242,7 @@ function isNonRetriableError(message: string): boolean {
   return NON_RETRIABLE_PATTERNS.some(pattern => pattern.test(message));
 }
 
-export async function findValidPort(ports: number[], csrfToken: string): Promise<number> {
+async function findValidPort(ports: number[], csrfToken: string): Promise<number> {
   if (ports.length === 0) {
     throw new Error('No listening ports found for the Antigravity process');
   }

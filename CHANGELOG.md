@@ -1,5 +1,9 @@
 # Changelog
 
+## [2.0.0] - 2026-08-21
+
+- Added support for the Antigravity extension for VS Code (`google.google-antigravity`), which runs an `agy.exe` hub instead of the IDE's `language_server` process
+
 ## [1.9.3] - 2026-08-09
 
 - Added responsive layout scaling and fluid typography to dashboard panel
