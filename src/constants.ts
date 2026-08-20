@@ -1,6 +1,7 @@
 export const USE_MOCK_DATA = process.env.AG_USAGE_MOCK_DATA === 'true';
 
 export const CONFIG_NAMESPACE = 'ag-usage';
+export const GOOGLE_ANTIGRAVITY_EXTENSION_ID = 'google.google-antigravity';
 export const REFRESH_COMMAND = 'ag-usage.refresh';
 export const EXTENSION_TITLE = 'AG Usage';
 export const SETTINGS_COMMAND = 'ag-usage.openSettings';
@@ -8,7 +9,7 @@ export const OPEN_PANEL_COMMAND = 'ag-usage.openPanel';
 export const EXPORT_HISTORY_COMMAND = 'ag-usage.exportHistory';
 export const INITIAL_DELAY_MS = 1500;
 export const MIN_DISPLAY_DELAY_MS = 300;
-export const STATUS_BAR_PRIORITY = 100;
+export const STATUS_BAR_PRIORITY = 101;
 export const DEFAULT_REFRESH_INTERVAL = 60;
 export const SERVER_STARTUP_TOLERANCE_MINUTES = 10;
 export const MS_PER_SECOND = 1000;
@@ -33,7 +34,9 @@ export const PUBLIC_STATUS_REFRESH_INTERVAL_MS = 5 * MS_PER_MINUTE;
 export const PROCESS_IDENTIFIERS = {
   LANGUAGE_SERVER: 'language_server',
   ANTIGRAVITY: 'antigravity',
-  CSRF_TOKEN: '--csrf_token'
+  CSRF_TOKEN: '--csrf_token',
+  HUB_PORT: '--hub-port',
+  GEMINI_DIR: '.gemini'
 };
 
 export const IDE_INFO = {

@@ -21,6 +21,6 @@ export default tseslint.config(
 		},
 	},
 	{
-		ignores: ['out/', 'dist/', '**/*.d.ts'],
+		ignores: ['out/', 'dist/', 'scripts/', '**/*.d.ts'],
 	}
 );

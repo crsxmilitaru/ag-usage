@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { BUCKET_OPACITY, CATEGORY_ORDER, EXTENSION_TITLE, OPEN_PANEL_COMMAND, SETTINGS_COMMAND, SVG_CONFIG, THEME_COLORS } from './constants';
+import { isAntigravityIde } from './environment';
 import { formatQuotaPercent, formatRemainingTimeSeparate, formatStatusBarText } from './formatter';
 import { QuotaGroup, UsageStatistics } from './types';
 import { escapeHtml, getProgressStopIndex, isNotStartedQuota, isWeeklyLimitReached, sortQuotaBuckets } from './utils';
@@ -304,7 +305,8 @@ export function renderStats(data: UsageStatistics): { text: string; tooltip: vsc
 
 	const tooltip = new vscode.MarkdownString();
 	tooltip.appendMarkdown(`<img src="data:image/svg+xml;base64,${Buffer.from(svgContent).toString('base64')}"/>\n\n`);
-	tooltip.appendMarkdown(`<div align="center"><strong>${planDisplay}</strong> · <a href="command:${OPEN_PANEL_COMMAND}">Dashboard</a> · <a href="command:ag-usage.openModelsSettings">Models</a> · <a href="command:${SETTINGS_COMMAND}">Settings</a></div>`);
+	const modelsLink = isAntigravityIde() ? ' · <a href="command:ag-usage.openModelsSettings">Models</a>' : '';
+	tooltip.appendMarkdown(`<div align="center"><strong>${planDisplay}</strong> · <a href="command:${OPEN_PANEL_COMMAND}">Dashboard</a>${modelsLink} · <a href="command:${SETTINGS_COMMAND}">Settings</a></div>`);
 	tooltip.isTrusted = true;
 	tooltip.supportHtml = true;
 
