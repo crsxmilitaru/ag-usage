@@ -1,5 +1,9 @@
 # Changelog
 
+## [2.0.1] - 2026-08-29
+
+- Added "Most Used Models" section to the dashboard panel, showing per-model generation counts
+
 ## [2.0.0] - 2026-08-21
 
 - Added support for the Antigravity extension for VS Code (`google.google-antigravity`), which runs an `agy.exe` hub instead of the IDE's `language_server` process

@@ -19,14 +19,15 @@ import {
 	STATUS_BAR_PRIORITY,
 	USE_MOCK_DATA
 } from './constants';
-import { createErrorTooltip } from './formatter';
 import { isAntigravityIde } from './environment';
+import { createErrorTooltip } from './formatter';
 import { QuotaHistory, QuotaHistoryEntry } from './history';
+import { fetchModelUsage } from './modelusage';
 import { NotificationManager } from './notifications';
 import { UsageViewProvider } from './panel';
 import { renderStats } from './renderer';
 import { fetchStatusGatorStatus } from './statusgator';
-import { CachedConnection, PublicServiceStatus, QuotaGroup, ServiceStatus, UsageStatistics } from './types';
+import { CachedConnection, ModelUsageSummary, PublicServiceStatus, QuotaGroup, ServiceStatus, UsageStatistics } from './types';
 import { getErrorMessage, isLikelyServerGlitch } from './utils';
 
 async function loadMockUsageStatistics(): Promise<UsageStatistics> {
@@ -46,6 +47,16 @@ async function loadMockUsageStatistics(): Promise<UsageStatistics> {
 		};
 	}
 	return { groups, plan: testData.usageStatistics.plan, planName: testData.usageStatistics.planName, credits: testData.usageStatistics.credits };
+}
+
+async function loadMockModelUsage(): Promise<ModelUsageSummary> {
+	const fs = await import('fs');
+	const path = await import('path');
+	const filePath = path.join(__dirname, '..', 'dev', 'testData.json');
+	const testData = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+	const entries: ModelUsageSummary['entries'] = (testData.modelUsage?.entries ?? []).map((entry: ModelUsageSummary['entries'][number]) => ({ ...entry }));
+	const totalGenerations = entries.reduce((sum, entry) => sum + entry.count, 0);
+	return { entries, totalGenerations, conversationCount: testData.modelUsage?.conversationCount ?? entries.length, scannedAt: Date.now() };
 }
 
 function isProcessNotFoundError(error: Error): boolean {
@@ -71,6 +82,7 @@ class ExtensionState implements vscode.Disposable {
 	refreshLoopGeneration = 0;
 	serviceStatus: ServiceStatus = 'loading';
 	publicServiceStatus: PublicServiceStatus | null = null;
+	modelUsage: ModelUsageSummary | null = null;
 	quotaHistory: QuotaHistory;
 	usageViewProvider = new UsageViewProvider();
 	readonly context: vscode.ExtensionContext;
@@ -170,7 +182,7 @@ export function activate(context: vscode.ExtensionContext) {
 	state.usageViewProvider.onDidBecomeVisible = () => {
 		refresh(true, { includePublicStatus: true }).catch(err => state?.log('Refresh after opening panel failed', err));
 	};
-	state.usageViewProvider.update(state.lastStatsData, state.quotaHistory, state.serviceStatus, state.publicServiceStatus);
+	state.usageViewProvider.update(state.lastStatsData, state.quotaHistory, state.serviceStatus, state.publicServiceStatus, state.modelUsage);
 	context.subscriptions.push(state);
 
 	context.subscriptions.push(
@@ -248,7 +260,7 @@ export function activate(context: vscode.ExtensionContext) {
 				state.context.globalState.update('quotaHistory', state.quotaHistory.getRawEntries());
 				state.context.globalState.update('quotaDailyUsage', state.quotaHistory.getRawDailyUsage());
 				if (state.lastStatsData) {
-					state.usageViewProvider.update(state.lastStatsData, state.quotaHistory, state.serviceStatus, state.publicServiceStatus);
+					state.usageViewProvider.update(state.lastStatsData, state.quotaHistory, state.serviceStatus, state.publicServiceStatus, state.modelUsage);
 				}
 			}
 
@@ -263,7 +275,7 @@ export function activate(context: vscode.ExtensionContext) {
 				const isEnabled = vscode.workspace.getConfiguration(CONFIG_NAMESPACE).get<boolean>('enablePublicStatus', true);
 				if (!isEnabled) {
 					state.publicServiceStatus = null;
-					state.usageViewProvider.update(state.lastStatsData, state.quotaHistory, state.serviceStatus, state.publicServiceStatus);
+					state.usageViewProvider.update(state.lastStatsData, state.quotaHistory, state.serviceStatus, state.publicServiceStatus, state.modelUsage);
 				} else {
 					refresh(false, { includePublicStatus: true }).catch(err => state?.log('Public status refresh after enabling failed', err));
 				}
@@ -465,7 +477,7 @@ async function refresh(showRefreshing: boolean, options: RefreshOptions = {}) {
 	const currentState = state;
 	currentState.refreshIncludesPublicStatus = needsPublicStatus;
 	currentState.serviceStatus = 'loading';
-	currentState.usageViewProvider.update(currentState.lastStatsData, currentState.quotaHistory, currentState.serviceStatus, currentState.publicServiceStatus);
+	currentState.usageViewProvider.update(currentState.lastStatsData, currentState.quotaHistory, currentState.serviceStatus, currentState.publicServiceStatus, currentState.modelUsage);
 
 	const refreshPublicStatus = async (): Promise<PublicServiceStatus | null> => {
 		try {
@@ -475,6 +487,19 @@ async function refresh(showRefreshing: boolean, options: RefreshOptions = {}) {
 			return currentState.publicServiceStatus;
 		}
 	};
+
+	const refreshModelUsage = async (forceRefresh: boolean): Promise<ModelUsageSummary | null> => {
+		try {
+			return await fetchModelUsage((message, error) => currentState.log(message, error), forceRefresh);
+		} catch (error) {
+			currentState.log('Model usage scan failed', error);
+			return currentState.modelUsage;
+		}
+	};
+
+	// The model usage scan reads local files only, so it runs on every refresh
+	// attempt regardless of whether the quota API is reachable.
+	const modelUsagePromise: Promise<ModelUsageSummary | null> | null = USE_MOCK_DATA ? null : refreshModelUsage(showRefreshing);
 
 	const applyStatsUpdate = (statsData: UsageStatistics, logMessage: string, publicStatus: PublicServiceStatus | null) => {
 		const previousStatsData = currentState.lastStatsData;
@@ -505,7 +530,7 @@ async function refresh(showRefreshing: boolean, options: RefreshOptions = {}) {
 			currentState.notificationManager.checkQuotaNotifications(statsData, previousStatsData);
 		}
 
-		currentState.usageViewProvider.update(dataToDisplay, currentState.quotaHistory, currentState.serviceStatus, currentState.publicServiceStatus);
+		currentState.usageViewProvider.update(dataToDisplay, currentState.quotaHistory, currentState.serviceStatus, currentState.publicServiceStatus, currentState.modelUsage);
 		currentState.context.globalState.update('quotaHistory', currentState.quotaHistory.getRawEntries());
 		currentState.context.globalState.update('quotaDailyUsage', currentState.quotaHistory.getRawDailyUsage());
 
@@ -530,6 +555,7 @@ async function refresh(showRefreshing: boolean, options: RefreshOptions = {}) {
 				await minDelay;
 				if (!currentState.isActive) { return; }
 				statsData = await loadMockUsageStatistics();
+				currentState.modelUsage = await loadMockModelUsage();
 				applyStatsUpdate(statsData, 'Refresh completed using mock data', currentState.publicServiceStatus);
 				return;
 			}
@@ -537,8 +563,9 @@ async function refresh(showRefreshing: boolean, options: RefreshOptions = {}) {
 			const connection = currentState.cachedConnection;
 			if (connection && isCacheValid(connection)) {
 				try {
-					const [fetchedStatsData, publicStatus] = await Promise.all([fetchStats(connection.port, connection.csrfToken), publicStatusPromise, minDelay]);
+					const [fetchedStatsData, publicStatus, , modelUsage] = await Promise.all([fetchStats(connection.port, connection.csrfToken), publicStatusPromise, minDelay, modelUsagePromise ?? Promise.resolve(null)]);
 					if (!currentState.isActive) { return; }
+					currentState.modelUsage = modelUsage ?? currentState.modelUsage;
 					applyStatsUpdate(fetchedStatsData, 'Refresh completed using cached connection', publicStatus);
 					return;
 				} catch (error) {
@@ -554,8 +581,9 @@ async function refresh(showRefreshing: boolean, options: RefreshOptions = {}) {
 
 			currentState.cachedConnection = { ...discovered, timestamp: Date.now() };
 
-			const [fetchedStatsData, publicStatus] = await Promise.all([fetchStats(discovered.port, discovered.csrfToken), publicStatusPromise, minDelay]);
+			const [fetchedStatsData, publicStatus, , modelUsage] = await Promise.all([fetchStats(discovered.port, discovered.csrfToken), publicStatusPromise, minDelay, modelUsagePromise ?? Promise.resolve(null)]);
 			if (!currentState.isActive) { return; }
+			currentState.modelUsage = modelUsage ?? currentState.modelUsage;
 			applyStatsUpdate(fetchedStatsData, 'Refresh completed successfully', publicStatus);
 		} catch (error) {
 			if (!currentState.isActive) { return; }
@@ -568,6 +596,7 @@ async function refresh(showRefreshing: boolean, options: RefreshOptions = {}) {
 			const err = error instanceof Error ? error : new Error(String(error));
 			currentState.log('Refresh failed', err);
 			if (!isAntigravityIde() && isProcessNotFoundError(err)) {
+				currentState.serviceStatus = 'not-found';
 				currentState.statusBarItem.text = `$(rocket) ${EXTENSION_TITLE}`;
 				currentState.statusBarItem.tooltip = 'The Antigravity extension is not started or initialized. Start it, then click to retry.';
 				currentState.statusBarItem.color = undefined;
@@ -578,7 +607,10 @@ async function refresh(showRefreshing: boolean, options: RefreshOptions = {}) {
 				currentState.statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
 				currentState.statusBarItem.color = new vscode.ThemeColor('statusBarItem.errorForeground');
 			}
-			currentState.usageViewProvider.update(currentState.lastStatsData, currentState.quotaHistory, currentState.serviceStatus, currentState.publicServiceStatus);
+			if (modelUsagePromise) {
+				currentState.modelUsage = (await modelUsagePromise) ?? currentState.modelUsage;
+			}
+			currentState.usageViewProvider.update(currentState.lastStatsData, currentState.quotaHistory, currentState.serviceStatus, currentState.publicServiceStatus, currentState.modelUsage);
 		}
 	};
 

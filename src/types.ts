@@ -31,6 +31,20 @@ export interface UsageStatistics {
   credits?: CreditInfo;
 }
 
+export interface ModelUsageEntry {
+  label: string;
+  model: string;
+  thinkingLevel: string;
+  count: number;
+}
+
+export interface ModelUsageSummary {
+  entries: ModelUsageEntry[];
+  totalGenerations: number;
+  conversationCount: number;
+  scannedAt: number;
+}
+
 export interface DailyUsageEntry {
   date: string;
   category: string;
@@ -52,7 +66,7 @@ export type ResetTimeDisplayMode = 'relative' | 'absolute' | 'both';
 
 export type AbsoluteTimeFormat = '24h' | '12h';
 
-export type ServiceStatus = 'loading' | 'connected' | 'degraded' | 'disconnected' | 'glitch';
+export type ServiceStatus = 'loading' | 'connected' | 'degraded' | 'disconnected' | 'glitch' | 'not-found';
 
 export type PublicServiceState = 'up' | 'warn' | 'down' | 'unknown';
 

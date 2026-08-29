@@ -27,9 +27,17 @@ export const MAX_FAILED_REFRESH_DELAY_MS = 60000;
 export const MAX_STATUS_TEXT_LENGTH = 120;
 export const MAX_PORT_VALIDATION_ATTEMPTS = 2;
 export const HEATMAP_MAX_DAYS = 180;
+export const MODEL_USAGE_COLLAPSED_ROWS = 3;
 export const LOW_QUOTA_REARM_MARGIN_PERCENT = 10;
 export const STATUSGATOR_SERVICE_URL = 'https://statusgator.com/services/google-antigravity';
 export const PUBLIC_STATUS_REFRESH_INTERVAL_MS = 5 * MS_PER_MINUTE;
+export const MODEL_USAGE_REFRESH_INTERVAL_MS = 5 * MS_PER_MINUTE;
+
+export const MODEL_USAGE_CONVERSATION_DIRS = [
+	'antigravity-ide',
+	'antigravity-cli',
+	'antigravity'
+] as const;
 
 export const PROCESS_IDENTIFIERS = {
   LANGUAGE_SERVER: 'language_server',

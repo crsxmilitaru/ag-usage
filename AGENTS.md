@@ -19,6 +19,7 @@ AG Usage (`ag-usage`) is a Visual Studio Code extension designed to monitor and 
 - `src/renderer.ts`: Status bar rendering logic. Constructs status bar text, countdown indicators, and rich Markdown tooltips.
 - `src/panel.ts`: Webview panel provider (`UsageViewProvider` implementing `vscode.WebviewViewProvider`). Renders the interactive sidebar dashboard (`ag-usage.sidebarPanel`) with live quota gauges, daily activity heatmap, history charts, model lists, and service health status.
 - `src/history.ts`: State management for quota history and daily usage tracking (`QuotaHistory`, `QuotaHistoryEntry`, `DailyUsageEntry`).
+- `src/modelusage.ts`: Local model usage scanner. Parses SQLite `gen_metadata` generation records across Antigravity storage directories (`~/.gemini/antigravity`, `~/.gemini/antigravity-ide`, `~/.gemini/antigravity-cli`) and aggregates per-model, per-thinking-level generation counts for the "Most Used Models" panel section.
 - `src/formatter.ts`: Helper functions for formatting dates, times, relative countdowns, quota percentages, and error tooltips.
 - `src/notifications.ts`: Quota alerts and threshold notifications (`NotificationManager`) for full quota refills and low quota warnings.
 - `src/statusgator.ts`: Public service status monitor. Scrapes and parses Google Antigravity service health and outage reports from StatusGator.

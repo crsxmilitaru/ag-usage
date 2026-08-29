@@ -22,7 +22,7 @@
 
 ## ✨ Features
 
-- **Webview panel**: Includes a dashboard showing your current model quotas, Extra Credits, StatusGator public health information, an interactive usage history log with trend sparklines, and a usage activity heatmap with monthly navigation.
+- **Webview panel**: Includes a dashboard showing your current model quotas, Extra Credits, most used models, StatusGator public health information, an interactive usage history log with trend sparklines, and a usage activity heatmap with monthly navigation.
 
   <p align="center">
     <img src="https://raw.githubusercontent.com/crsxmilitaru/ag-usage/main/assets/panel.png" alt="AG Usage Dashboard Panel Preview" width="800">

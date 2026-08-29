@@ -1,10 +1,10 @@
 import * as crypto from 'crypto';
 import * as vscode from 'vscode';
-import { BUCKET_OPACITY, CATEGORY_ORDER, CONFIG_NAMESPACE, PROGRESS_STOPS, STATUSGATOR_SERVICE_URL, THEME_COLORS } from './constants';
+import { BUCKET_OPACITY, CATEGORY_ORDER, CONFIG_NAMESPACE, MODEL_USAGE_COLLAPSED_ROWS, PROGRESS_STOPS, STATUSGATOR_SERVICE_URL, THEME_COLORS } from './constants';
 import { isAntigravityIde } from './environment';
 import { formatFullTimestamp, formatLocalDate, formatQuotaPercent, formatRelativeTime, formatRemainingTimeSeparate, resolveLocale } from './formatter';
 import { QuotaHistory, QuotaHistoryEntry } from './history';
-import { DailyUsageEntry, PublicServiceStatus, QuotaGroup, ServiceStatus, UsageStatistics } from './types';
+import { DailyUsageEntry, ModelUsageEntry, ModelUsageSummary, PublicServiceStatus, QuotaGroup, ServiceStatus, UsageStatistics } from './types';
 import { escapeHtml, getProgressStopIndex, isNotStartedQuota, isWeeklyLimitReached, sortQuotaBuckets } from './utils';
 
 export class UsageViewProvider implements vscode.WebviewViewProvider {
@@ -14,6 +14,7 @@ export class UsageViewProvider implements vscode.WebviewViewProvider {
 	private quotaHistory: QuotaHistory | null = null;
 	private lastServiceStatus: ServiceStatus = 'disconnected';
 	private publicServiceStatus: PublicServiceStatus | null = null;
+	private modelUsage: ModelUsageSummary | null = null;
 	private heatmapMonth: number = new Date().getMonth();
 	private heatmapYear: number = new Date().getFullYear();
 	private notifiedVisible = false;
@@ -86,11 +87,12 @@ export class UsageViewProvider implements vscode.WebviewViewProvider {
 		this.onDidBecomeVisible?.();
 	}
 
-	public update(statsData: UsageStatistics | null, history: QuotaHistory, serviceStatus: ServiceStatus = 'disconnected', publicServiceStatus: PublicServiceStatus | null = null) {
+	public update(statsData: UsageStatistics | null, history: QuotaHistory, serviceStatus: ServiceStatus = 'disconnected', publicServiceStatus: PublicServiceStatus | null = null, modelUsage: ModelUsageSummary | null = null) {
 		this.lastStatsData = statsData;
 		this.quotaHistory = history;
 		this.lastServiceStatus = serviceStatus;
 		this.publicServiceStatus = publicServiceStatus;
+		this.modelUsage = modelUsage;
 		if (this.view) {
 			this.updateView();
 		}
@@ -101,7 +103,7 @@ export class UsageViewProvider implements vscode.WebviewViewProvider {
 		const config = vscode.workspace.getConfiguration(CONFIG_NAMESPACE);
 		const locale = resolveLocale(config.get<string>('dateFormatLocale', 'default'));
 		const refreshInterval = config.get<number>('refreshInterval', 60);
-		this.view.webview.html = buildPanelHtml(this.lastStatsData, this.quotaHistory, this.heatmapMonth, this.heatmapYear, locale, this.lastServiceStatus, refreshInterval, this.publicServiceStatus);
+		this.view.webview.html = buildPanelHtml(this.lastStatsData, this.quotaHistory, this.heatmapMonth, this.heatmapYear, locale, this.lastServiceStatus, refreshInterval, this.publicServiceStatus, this.modelUsage);
 	}
 
 	dispose() {
@@ -612,6 +614,9 @@ body {
 	line-height: 1.4;
 	color: var(--text-muted);
 }
+.panel-notfound-icon {
+	opacity: 0.5;
+}
 @keyframes pulse {
 	0%, 100% { opacity: 0.4; }
 	50% { opacity: 1; }
@@ -1090,6 +1095,139 @@ body {
 	margin: 1px 0;
 }
 
+.model-usage-section {
+	background: var(--card-bg);
+	border: 1px solid var(--card-border);
+	border-radius: var(--radius-lg);
+	padding: 14px 16px;
+	flex-shrink: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+.model-usage-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 10px;
+}
+.model-usage-title {
+	font-size: 12px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.6px;
+	color: var(--text-secondary);
+}
+.model-usage-meta {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 1px;
+	font-size: 10px;
+	color: var(--text-muted);
+	line-height: 1.3;
+	text-align: right;
+	white-space: nowrap;
+}
+.model-usage-row {
+	display: flex;
+	flex-direction: column;
+	gap: 5px;
+	background: var(--metric-row-bg);
+	border: 1px solid var(--metric-row-border);
+	border-radius: var(--radius-sm);
+	padding: 8px 12px 7px;
+}
+.model-usage-row-top {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 10px;
+}
+.model-usage-info {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+}
+.model-usage-name {
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--text-primary);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.model-usage-level {
+	font-size: 10px;
+	font-weight: 600;
+	color: var(--text-secondary);
+	border: 1px solid var(--metric-row-border);
+	border-radius: 999px;
+	padding: 1px 8px;
+	flex-shrink: 0;
+}
+.model-usage-count {
+	font-size: 12px;
+	font-weight: 700;
+	color: var(--text-secondary);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+	display: inline-flex;
+	align-items: baseline;
+	gap: 4px;
+	flex-shrink: 0;
+}
+.model-usage-share {
+	font-size: 10px;
+	font-weight: 500;
+	color: var(--text-muted);
+}
+.model-usage-bar {
+	height: 4px;
+	background: var(--table-border);
+	border-radius: 2px;
+	overflow: hidden;
+}
+.model-usage-bar-fill {
+	height: 100%;
+	border-radius: 2px;
+	background: var(--progress-80);
+	transition: width 0.3s ease;
+}
+.model-usage-extra-rows {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding-top: 2px;
+}
+.model-usage-toggle {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	cursor: pointer;
+	user-select: none;
+	list-style: none;
+	padding: 6px;
+	border-radius: var(--radius-sm);
+	color: var(--text-muted);
+	font-size: 11px;
+	transition: all 0.15s ease;
+}
+.model-usage-toggle::-webkit-details-marker { display: none; }
+.model-usage-toggle:hover, .model-usage-toggle:focus-visible {
+	background: var(--table-row-hover);
+	color: var(--text-primary);
+}
+.model-usage-toggle:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.model-usage-more[open] .model-usage-show-more,
+.model-usage-more[open] .model-usage-toggle-more-icon,
+.model-usage-more:not([open]) .model-usage-show-less,
+.model-usage-more:not([open]) .model-usage-toggle-less-icon {
+	display: none;
+}
+
 .public-health-section {
 	background: var(--card-bg);
 	border: 1px solid var(--card-border);
@@ -1267,13 +1405,13 @@ body {
 	.bucket-value {
 		font-size: clamp(12px, 4.5cqw, 18px);
 	}
-	.quota-label, .heatmap-title, .public-health-title {
+	.quota-label, .heatmap-title, .public-health-title, .model-usage-title, .model-usage-name {
 		font-size: clamp(9px, 3cqw, 12px);
 	}
 	.bucket-label, .bucket-reset-time, .reset-label, .reset-value {
 		font-size: clamp(8px, 2.75cqw, 11px);
 	}
-	.heatmap-section, .public-health-section {
+	.heatmap-section, .public-health-section, .model-usage-section {
 		padding: clamp(8px, 3.5cqw, 14px);
 	}
 	.heatmap-cell {
@@ -1337,6 +1475,21 @@ function buildInitialLoadingScreen(): string {
 			<div>
 				<div class="panel-loading-title">Connecting to Antigravity</div>
 				<div class="panel-loading-subtitle">Finding the local usage API and loading quota data.</div>
+			</div>
+		</div>`;
+}
+
+function buildNotFoundScreen(): string {
+	return `
+		<div class="panel-loading-screen" role="status" aria-live="polite">
+			<svg class="panel-notfound-icon" width="34" height="34" viewBox="0 0 16 16" fill="var(--text-muted)" aria-hidden="true">
+				<path d="M5.244 2.027L4.93 1H3.3l-.312 1.027-.825-.504-.814.814.504.825L.826 3.474v1.63l1.027.312-.504.825.814.814.825-.504.312 1.027h1.63l.312-1.027.825.504.814-.814-.504-.825 1.027-.312V3.474l-1.027-.312.504-.825-.814-.814-.825.504zM4.116 6.2a1.911 1.911 0 1 1 0-3.822 1.911 1.911 0 0 1 0 3.822z"/>
+				<path d="M14.158 9.608l-.504-.825L14.68 8.47v-1.63l-1.026-.312.504-.825-.814-.814-.825.504L12.207 4.366h-1.63l-.312 1.027-.825-.504-.814.814.504.825-1.027.312v1.63l1.027.312-.504.825.814.814.825-.504.312 1.027h1.63l.312-1.027.825.504.814-.814zM11.392 9.22a1.911 1.911 0 1 1 0-3.822 1.911 1.911 0 0 1 0 3.822z"/>
+				<path d="M6.076 13.863L5.764 14.89h-1.63l-.312-1.027-.825.504-.814-.814.504-.825-1.027-.312v-1.63l1.027-.312-.504-.825.814-.814.825.504.312-1.027h1.63l.312 1.027.825-.504.814.814-.504.825 1.027.312v1.63l-1.027.312.504.825-.814.814-.825-.504zM4.949 13.05a1.911 1.911 0 1 1 0-3.822 1.911 1.911 0 0 1 0 3.822z"/>
+			</svg>
+			<div>
+				<div class="panel-loading-title">Extension Not Found</div>
+				<div class="panel-loading-subtitle">The Antigravity extension is not started or initialized. Start it, then click the status bar item to retry.</div>
 			</div>
 		</div>`;
 }
@@ -1519,23 +1672,94 @@ function buildHeatmapSection(dailyUsage: ReadonlyArray<DailyUsageEntry>, targetM
 		</div>`;
 }
 
-function buildPanelHtml(statsData: UsageStatistics | null, history: QuotaHistory, heatmapMonth: number, heatmapYear: number, locale?: string, serviceStatus: ServiceStatus = 'disconnected', refreshInterval: number = 60, publicServiceStatus: PublicServiceStatus | null = null): string {
+function buildModelUsageRowHtml(entry: ModelUsageEntry, maxCount: number, totalGenerations: number): string {
+	const share = totalGenerations > 0 ? Math.round((entry.count / totalGenerations) * 100) : 0;
+	const widthPct = maxCount > 0 ? Math.max(3, Math.round((entry.count / maxCount) * 100)) : 0;
+	return `
+		<div class="model-usage-row" title="${escapeHtml(`${entry.label}: ${entry.count} generations`)}">
+			<div class="model-usage-row-top">
+				<div class="model-usage-info">
+					<span class="model-usage-name">${escapeHtml(entry.model)}</span>
+					${entry.thinkingLevel ? `<span class="model-usage-level">${escapeHtml(entry.thinkingLevel)}</span>` : ''}
+				</div>
+				<span class="model-usage-count">${entry.count.toLocaleString()}<span class="model-usage-share">${share}%</span></span>
+			</div>
+			<div class="model-usage-bar"><div class="model-usage-bar-fill" style="width:${widthPct}%"></div></div>
+		</div>`;
+}
+
+function buildModelUsageSection(modelUsage: ModelUsageSummary | null): string {
+	const entries = modelUsage?.entries ?? [];
+	if (entries.length === 0) { return ''; }
+
+	const totalGenerations = modelUsage?.totalGenerations ?? 0;
+	const maxCount = entries[0].count;
+	const visibleEntries = entries.slice(0, MODEL_USAGE_COLLAPSED_ROWS);
+	const extraEntries = entries.slice(MODEL_USAGE_COLLAPSED_ROWS);
+
+	const visibleRowsHtml = visibleEntries
+		.map(entry => buildModelUsageRowHtml(entry, maxCount, totalGenerations))
+		.join('');
+
+	let extraRowsHtml = '';
+	if (extraEntries.length > 0) {
+		extraRowsHtml = `
+			<details class="model-usage-more">
+				<summary class="model-usage-toggle">
+					<span class="model-usage-show-more">Show all ${entries.length} models</span>
+					<span class="model-usage-show-less">Show less</span>
+					<svg class="model-usage-toggle-more-icon" width="14" height="14" viewBox="0 0 16 16"><path fill="currentColor" d="M8 11.5L2.5 6l.7-.7L8 10.1l4.8-4.8.7.7L8 11.5z"/></svg>
+					<svg class="model-usage-toggle-less-icon" width="14" height="14" viewBox="0 0 16 16"><path fill="currentColor" d="M8 4.5l5.5 5.5-.7.7L8 5.9l-4.8 4.8-.7-.7L8 4.5z"/></svg>
+				</summary>
+				<div class="model-usage-extra-rows">
+					${extraEntries.map(entry => buildModelUsageRowHtml(entry, maxCount, totalGenerations)).join('')}
+				</div>
+			</details>`;
+	}
+
+	const conversationCount = modelUsage?.conversationCount ?? 0;
+	const metaText = totalGenerations > 0
+		? (conversationCount > 0
+			? `${totalGenerations.toLocaleString()} ${totalGenerations === 1 ? 'generation' : 'generations'} · ${conversationCount.toLocaleString()} ${conversationCount === 1 ? 'chat' : 'chats'}`
+			: `${totalGenerations.toLocaleString()} ${totalGenerations === 1 ? 'generation' : 'generations'}`)
+		: '';
+
+	return `
+		<div class="model-usage-section">
+			<div class="model-usage-header">
+				<span class="model-usage-title">Most Used Models</span>
+				${metaText ? `<div class="model-usage-meta"><span>${escapeHtml(metaText)}</span></div>` : ''}
+			</div>
+			${visibleRowsHtml}
+			${extraRowsHtml}
+		</div>`;
+}
+
+function buildPanelHtml(statsData: UsageStatistics | null, history: QuotaHistory, heatmapMonth: number, heatmapYear: number, locale?: string, serviceStatus: ServiceStatus = 'disconnected', refreshInterval: number = 60, publicServiceStatus: PublicServiceStatus | null = null, modelUsage: ModelUsageSummary | null = null): string {
 	const nonce = crypto.randomBytes(16).toString('base64');
 	const showInitialLoading = serviceStatus === 'loading' && !statsData;
-	const bodyClass = showInitialLoading ? ' class="panel-loading-body"' : '';
-	const bodyContent = showInitialLoading
-		? buildInitialLoadingScreen()
-		: `
-	${buildTopRow(statsData)}
-	${buildPublicHealthChart(publicServiceStatus, locale)}
-	<div class="section">
-		<div class="quota-grid">${buildQuotaCards(statsData, history, locale)}</div>
-	</div>
-	${buildHeatmapSection(history.getDailyUsage(), heatmapMonth, heatmapYear, locale)}
+	const showNotFound = serviceStatus === 'not-found' && !statsData;
+	const isFullScreen = showInitialLoading || showNotFound;
+	const bodyClass = isFullScreen ? ' class="panel-loading-body"' : '';
+	let bodyContent: string;
+	if (showInitialLoading) {
+		bodyContent = buildInitialLoadingScreen();
+	} else if (showNotFound) {
+		bodyContent = buildNotFoundScreen();
+	} else {
+		bodyContent = `
+${buildTopRow(statsData)}
+${buildPublicHealthChart(publicServiceStatus, locale)}
+<div class="section">
+	<div class="quota-grid">${buildQuotaCards(statsData, history, locale)}</div>
+</div>
+${buildModelUsageSection(modelUsage)}
+${buildHeatmapSection(history.getDailyUsage(), heatmapMonth, heatmapYear, locale)}
 	<div class="panel-footer">
 		<span id="lastUpdated">Updated just now</span>
 		<span class="refresh-interval-info">• ${refreshInterval > 0 ? `Auto: ${Math.max(10, refreshInterval)}s` : 'Auto: Off'}</span>
 	</div>`;
+	}
 
 	return `<!DOCTYPE html>
 <html lang="en">
@@ -1614,6 +1838,13 @@ document.querySelectorAll('[data-action="prevMonth"]').forEach(el => {
 
 document.querySelectorAll('[data-action="nextMonth"]').forEach(el => {
 	el.addEventListener('click', nextMonth);
+});
+
+document.querySelectorAll('.model-usage-more').forEach(details => {
+	details.addEventListener('toggle', () => {
+		uiState.modelUsageExpanded = details.open;
+		saveUiState();
+	});
 });
 
 document.querySelectorAll('.history-clear-row').forEach(row => {
@@ -1717,6 +1948,11 @@ document.addEventListener('scroll', () => {
 }, true);
 
 (function restoreUiState() {
+	if (uiState.modelUsageExpanded) {
+		document.querySelectorAll('.model-usage-more').forEach(d => {
+			d.open = true;
+		});
+	}
 	if (uiState.openDetails) {
 		document.querySelectorAll('.card-history-details').forEach(d => {
 			if (d.dataset.category === uiState.openDetails && !d.open) {
