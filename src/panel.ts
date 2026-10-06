@@ -1,11 +1,11 @@
 import * as crypto from 'crypto';
 import * as vscode from 'vscode';
-import { BUCKET_OPACITY, CATEGORY_ORDER, CONFIG_NAMESPACE, MODEL_USAGE_COLLAPSED_ROWS, PROGRESS_STOPS, STATUSGATOR_SERVICE_URL, THEME_COLORS } from './constants';
+import { BUCKET_OPACITY, CATEGORY_NAMES, CATEGORY_ORDER, CONFIG_NAMESPACE, MODEL_KEYWORDS, MODEL_USAGE_COLLAPSED_ROWS, MS_PER_HOUR, PANEL_LAYOUT_EDITING_CONTEXT, PANEL_SECTION_IDS, PANEL_SECTION_LABELS, PanelSectionId, PROGRESS_STOPS, MODELS_COLORS, REFRESH_COMMAND, STATUSGATOR_SERVICE_URL, THEME_COLORS } from './constants';
 import { isAntigravityIde } from './environment';
 import { formatFullTimestamp, formatLocalDate, formatQuotaPercent, formatRelativeTime, formatRemainingTimeSeparate, resolveLocale } from './formatter';
 import { QuotaHistory, QuotaHistoryEntry } from './history';
 import { DailyUsageEntry, ModelUsageEntry, ModelUsageSummary, PublicServiceStatus, QuotaGroup, ServiceStatus, UsageStatistics } from './types';
-import { escapeHtml, getProgressStopIndex, isNotStartedQuota, isWeeklyLimitReached, sortQuotaBuckets } from './utils';
+import { escapeHtml, getErrorMessage, getProgressStopIndex, hidePanelSection, isNotStartedQuota, isWeeklyLimitReached, movePanelSection, normalizeModelName, normalizePanelSectionLayout, PanelSectionSlot, serializePanelSectionLayout, showPanelSection, sortQuotaBuckets } from './utils';
 
 export class UsageViewProvider implements vscode.WebviewViewProvider {
 	public static readonly viewType = 'ag-usage.sidebarPanel';
@@ -13,14 +13,17 @@ export class UsageViewProvider implements vscode.WebviewViewProvider {
 	private lastStatsData: UsageStatistics | null = null;
 	private quotaHistory: QuotaHistory | null = null;
 	private lastServiceStatus: ServiceStatus = 'disconnected';
+	private lastErrorMessage: string | null = null;
 	private publicServiceStatus: PublicServiceStatus | null = null;
 	private modelUsage: ModelUsageSummary | null = null;
 	private heatmapMonth: number = new Date().getMonth();
 	private heatmapYear: number = new Date().getFullYear();
+	private layoutEditing = false;
 	private notifiedVisible = false;
 	private disposables: vscode.Disposable[] = [];
 	public onHistoryChanged?: (history: QuotaHistory) => void;
 	public onDidBecomeVisible?: () => void;
+	public log?: (message: string, error?: unknown) => void;
 
 	public resolveWebviewView(
 		webviewView: vscode.WebviewView,
@@ -53,6 +56,17 @@ export class UsageViewProvider implements vscode.WebviewViewProvider {
 					this.onHistoryChanged?.(this.quotaHistory);
 					this.updateView();
 				}
+			} else if (message.command === 'retry') {
+				vscode.commands.executeCommand(REFRESH_COMMAND);
+			} else if (message.command === 'copyError' && typeof message.text === 'string') {
+				void vscode.env.clipboard.writeText(message.text).then(() => {
+					void this.view?.webview.postMessage({ command: 'copyErrorResult', success: true });
+				}, (error: unknown) => {
+					this.log?.('Failed to copy panel error', error);
+					void this.view?.webview.postMessage({ command: 'copyErrorResult', success: false });
+				});
+			} else if (message.command === 'openIssues') {
+				void vscode.env.openExternal(vscode.Uri.parse('https://github.com/crsxmilitaru/ag-usage/issues'));
 			} else if (message.command === 'openAntigravitySettings') {
 				vscode.commands.executeCommand('workbench.action.openAntigravitySettingsWithId', undefined, 'Models')
 					.then(undefined, () => {
@@ -72,6 +86,8 @@ export class UsageViewProvider implements vscode.WebviewViewProvider {
 					this.heatmapYear++;
 				}
 				this.updateView();
+			} else if (message.command === 'moveSection' || message.command === 'hideSection' || message.command === 'showSection') {
+				void this.handlePanelLayoutMessage(message);
 			}
 		}, null, this.disposables);
 
@@ -87,12 +103,17 @@ export class UsageViewProvider implements vscode.WebviewViewProvider {
 		this.onDidBecomeVisible?.();
 	}
 
-	public update(statsData: UsageStatistics | null, history: QuotaHistory, serviceStatus: ServiceStatus = 'disconnected', publicServiceStatus: PublicServiceStatus | null = null, modelUsage: ModelUsageSummary | null = null) {
+	public update(statsData: UsageStatistics | null, history: QuotaHistory, serviceStatus: ServiceStatus = 'disconnected', publicServiceStatus: PublicServiceStatus | null = null, modelUsage: ModelUsageSummary | null = null, errorMessage?: string | null) {
 		this.lastStatsData = statsData;
 		this.quotaHistory = history;
 		this.lastServiceStatus = serviceStatus;
 		this.publicServiceStatus = publicServiceStatus;
 		this.modelUsage = modelUsage;
+		if (errorMessage !== undefined) {
+			this.lastErrorMessage = errorMessage;
+		} else if (serviceStatus !== 'disconnected') {
+			this.lastErrorMessage = null;
+		}
 		if (this.view) {
 			this.updateView();
 		}
@@ -103,10 +124,78 @@ export class UsageViewProvider implements vscode.WebviewViewProvider {
 		const config = vscode.workspace.getConfiguration(CONFIG_NAMESPACE);
 		const locale = resolveLocale(config.get<string>('dateFormatLocale', 'default'));
 		const refreshInterval = config.get<number>('refreshInterval', 60);
-		this.view.webview.html = buildPanelHtml(this.lastStatsData, this.quotaHistory, this.heatmapMonth, this.heatmapYear, locale, this.lastServiceStatus, refreshInterval, this.publicServiceStatus, this.modelUsage);
+		const panelSections = normalizePanelSectionLayout(config.get<unknown>('panelSections'));
+		try {
+			this.view.webview.html = buildPanelHtml(this.lastStatsData, this.quotaHistory, this.heatmapMonth, this.heatmapYear, locale, this.lastServiceStatus, refreshInterval, this.publicServiceStatus, this.modelUsage, panelSections, this.layoutEditing, this.lastErrorMessage);
+		} catch (error) {
+			const message = getErrorMessage(error);
+			this.lastErrorMessage = message;
+			this.log?.('Failed to render usage panel', error);
+			try {
+				this.view.webview.html = buildPanelHtml(null, this.quotaHistory, this.heatmapMonth, this.heatmapYear, locale, 'disconnected', refreshInterval, null, null, panelSections, false, message);
+			} catch (fallbackError) {
+				this.log?.('Failed to render usage panel error state', fallbackError);
+				this.view.webview.html = buildFallbackErrorHtml(message);
+			}
+		}
+	}
+
+	public toggleLayoutEditing(): void {
+		this.layoutEditing = !this.layoutEditing;
+		void vscode.commands.executeCommand('setContext', PANEL_LAYOUT_EDITING_CONTEXT, this.layoutEditing);
+		this.updateView();
+	}
+
+	private getPanelBuildContext(locale?: string): PanelBuildContext {
+		return {
+			statsData: this.lastStatsData,
+			history: this.quotaHistory!,
+			heatmapMonth: this.heatmapMonth,
+			heatmapYear: this.heatmapYear,
+			locale,
+			publicServiceStatus: this.publicServiceStatus,
+			modelUsage: this.modelUsage
+		};
+	}
+
+	private async handlePanelLayoutMessage(message: { command?: string; sectionId?: string; direction?: string }) {
+		if (!this.quotaHistory || !this.layoutEditing) { return; }
+		const sectionId = message.sectionId;
+		if (typeof sectionId !== 'string' || !(PANEL_SECTION_IDS as readonly string[]).includes(sectionId)) { return; }
+		const id = sectionId as PanelSectionId;
+		const config = vscode.workspace.getConfiguration(CONFIG_NAMESPACE);
+		const locale = resolveLocale(config.get<string>('dateFormatLocale', 'default'));
+		const ctx = this.getPanelBuildContext(locale);
+		let layout = normalizePanelSectionLayout(config.get<unknown>('panelSections'));
+		const isDisplayed = (section: PanelSectionId) => {
+			const slot = layout.find(item => item.id === section);
+			if (!slot) { return false; }
+			if (slot.hidden) { return true; }
+			return panelSectionHasContent(section, ctx);
+		};
+		if (message.command === 'moveSection') {
+			const direction = message.direction === 'down' ? 'down' : message.direction === 'up' ? 'up' : null;
+			if (!direction) { return; }
+			layout = movePanelSection(layout, id, direction, isDisplayed);
+		} else if (message.command === 'hideSection') {
+			layout = hidePanelSection(layout, id);
+		} else if (message.command === 'showSection') {
+			layout = showPanelSection(layout, id);
+		} else {
+			return;
+		}
+		try {
+			await config.update('panelSections', serializePanelSectionLayout(layout), getPanelSectionsUpdateTarget());
+		} catch (error) {
+			this.log?.('Failed to update panel section layout', error);
+		}
 	}
 
 	dispose() {
+		if (this.layoutEditing) {
+			this.layoutEditing = false;
+			void vscode.commands.executeCommand('setContext', PANEL_LAYOUT_EDITING_CONTEXT, false);
+		}
 		this.disposables.forEach(d => d.dispose());
 		this.disposables = [];
 	}
@@ -306,7 +395,16 @@ function buildCardHeaderHtml(category: string, group: QuotaGroup | undefined, lo
 	const pct = formatQuotaPercent(group.quota);
 	const colorClass = getBarColorClass(group.quota);
 
-	const modelsList = group.models?.filter(Boolean) ?? [];
+	const rawModels = group.models?.filter(Boolean) ?? [];
+	const seenModels = new Set<string>();
+	const modelsList: string[] = [];
+	for (const rawModel of rawModels) {
+		const name = normalizeModelName(rawModel);
+		if (name && !seenModels.has(name)) {
+			seenModels.add(name);
+			modelsList.push(name);
+		}
+	}
 	let infoButtonHtml = '';
 	if (modelsList.length > 0) {
 		const modelsSummary = escapeHtml(modelsList.join(', '));
@@ -496,6 +594,8 @@ function getPanelStyles(): string {
 	--success: ${THEME_COLORS.dark.success};
 	--warning: ${THEME_COLORS.dark.warning};
 	--error: ${THEME_COLORS.dark.error};
+	--models-gemini: ${MODELS_COLORS.dark.gemini};
+	--models-other: ${MODELS_COLORS.dark.other};
 	--metric-row-bg: color-mix(in srgb, #000 ${BUCKET_OPACITY.defaultBg * 100}%, var(--card-bg));
 	--metric-row-border: color-mix(in srgb, var(--card-border) ${BUCKET_OPACITY.defaultBorder * 100}%, transparent);
 ${buildProgressVars(THEME_COLORS.dark.progress)}
@@ -505,9 +605,12 @@ ${buildProgressVars(THEME_COLORS.dark.progress)}
 
 body.vscode-light {
 ${buildProgressVars(THEME_COLORS.light.progress)}
+	--error: ${THEME_COLORS.light.error};
+	--models-gemini: ${MODELS_COLORS.light.gemini};
+	--models-other: ${MODELS_COLORS.light.other};
 }
 
-html { container-type: inline-size; height: 100%; }
+html { container-type: inline-size; container-name: panel; height: 100%; }
 body { height: 100%; }
 
 * {
@@ -616,6 +719,125 @@ body {
 }
 .panel-notfound-icon {
 	opacity: 0.5;
+}
+.panel-loading-body:has(.panel-error-screen) {
+	overflow: auto;
+	justify-content: safe center;
+}
+.panel-error-screen {
+	gap: 16px;
+	padding: 28px 8px;
+	color: var(--text-primary);
+}
+.panel-error-icon {
+	color: var(--error);
+	flex-shrink: 0;
+}
+.panel-error-copy {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 10px;
+	width: 100%;
+	max-width: 420px;
+}
+.panel-error-title {
+	font-size: 15px;
+	font-weight: 700;
+	line-height: 1.3;
+	color: var(--error);
+}
+.panel-error-message {
+	font-size: 13px;
+	line-height: 1.5;
+	color: var(--text-primary);
+	word-break: break-word;
+	overflow-wrap: anywhere;
+	white-space: pre-wrap;
+	user-select: text;
+}
+.panel-error-actions {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+}
+.panel-error-actions-row {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+}
+.panel-error-actions-row .panel-error-action {
+	width: 104px;
+}
+.panel-error-action {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+	background: var(--card-bg);
+	color: var(--text-primary);
+	border: 1px solid var(--card-border);
+	border-radius: var(--radius-sm);
+	padding: 6px 12px;
+	font: inherit;
+	font-size: 12px;
+	font-weight: 600;
+	line-height: 1.4;
+	text-decoration: none;
+	cursor: pointer;
+	user-select: none;
+	transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.panel-error-action:hover {
+	background: var(--table-row-hover);
+	border-color: var(--text-secondary);
+}
+.panel-error-action:focus-visible {
+	border-color: var(--text-secondary);
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 2px;
+}
+.panel-error-banner {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	margin-bottom: 12px;
+	padding: 10px 12px;
+	border: 1px solid color-mix(in srgb, var(--error) 55%, var(--card-border));
+	background: color-mix(in srgb, var(--error) 14%, var(--card-bg));
+	border-radius: var(--radius-lg);
+}
+.panel-error-banner-header {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+}
+.panel-error-banner-text {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	text-align: left;
+}
+.panel-error-banner-title {
+	font-size: 12px;
+	font-weight: 700;
+	line-height: 1.3;
+	color: var(--error);
+}
+.panel-error-banner .panel-error-message {
+	font-size: 13px;
+	text-align: left;
+}
+.panel-error-banner .panel-error-actions {
+	align-items: flex-start;
+}
+.panel-error-banner .panel-error-actions-row {
+	justify-content: flex-start;
 }
 @keyframes pulse {
 	0%, 100% { opacity: 0.4; }
@@ -979,6 +1201,7 @@ body {
 	border-radius: var(--radius-lg);
 	padding: 14px 16px;
 	flex-shrink: 0;
+	min-width: 0;
 }
 .heatmap-header {
 	display: flex;
@@ -1027,37 +1250,69 @@ body {
 	text-align: center;
 }
 .heatmap-grid {
+	--heatmap-gap: 3px;
+	--heatmap-cell-max: 28px;
+	--heatmap-cell-min: 8px;
 	display: flex;
 	flex-direction: column;
-	gap: 6px;
+	gap: 4px;
+	flex: 0 1 calc(7 * var(--heatmap-cell-max) + 6 * var(--heatmap-gap));
+	width: auto;
+	max-width: calc(7 * var(--heatmap-cell-max) + 6 * var(--heatmap-gap));
+	min-width: calc(7 * var(--heatmap-cell-min) + 6 * var(--heatmap-gap));
 }
-.heatmap-labels {
-	display: flex;
-	gap: 3px;
-	padding-right: 0;
-	margin-left: 0;
+.heatmap-labels,
+.heatmap-week {
+	display: grid;
+	grid-template-columns: repeat(7, minmax(var(--heatmap-cell-min), 1fr));
+	gap: var(--heatmap-gap);
+	width: 100%;
 }
 .heatmap-label {
-	width: 14px;
+	min-width: 0;
 	font-size: 9px;
-	line-height: 14px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.2px;
+	line-height: 1;
 	color: var(--text-muted);
 	text-align: center;
+	white-space: nowrap;
+	overflow: hidden;
 }
-.heatmap-columns {
-	display: flex;
-	gap: 3px;
-}
-.heatmap-column {
+.heatmap-weeks {
 	display: flex;
 	flex-direction: column;
-	gap: 3px;
+	gap: var(--heatmap-gap);
+	width: 100%;
+	min-width: 0;
 }
 .heatmap-cell {
-	width: 14px;
-	height: 14px;
-	border-radius: 2px;
+	width: 100%;
+	aspect-ratio: 1;
+	height: auto;
+	min-width: 0;
+	container-type: inline-size;
+	container-name: heatmap-cell;
+	border-radius: 3px;
 	transition: opacity 0.15s ease;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+.heatmap-cell-num {
+	max-width: 100%;
+	overflow: hidden;
+	font-size: 11px;
+	font-weight: 600;
+	line-height: 1;
+	color: var(--text-secondary);
+	font-variant-numeric: tabular-nums;
+	pointer-events: none;
+}
+.heatmap-cell.level-3 .heatmap-cell-num,
+.heatmap-cell.level-4 .heatmap-cell-num {
+	color: var(--text-primary);
 }
 .heatmap-cell:not(.future):hover {
 	opacity: 0.75;
@@ -1069,7 +1324,7 @@ body {
 .heatmap-cell.level-1 { background: color-mix(in srgb, var(--success) 30%, var(--card-bg)); }
 .heatmap-cell.level-2 { background: color-mix(in srgb, var(--success) 50%, var(--card-bg)); }
 .heatmap-cell.level-3 { background: color-mix(in srgb, var(--success) 72%, var(--card-bg)); }
-.heatmap-cell.level-4 { background: var(--success); }
+.heatmap-cell.level-4 { background: color-mix(in srgb, var(--success) 88%, var(--card-bg)); }
 .heatmap-cell.future { opacity: 0.15; }
 .heatmap-cell.other-month { opacity: 0.1 !important; }
 .heatmap-cell.today { outline: 1.5px solid var(--text-muted); outline-offset: -0.5px; }
@@ -1078,21 +1333,186 @@ body {
 	justify-content: center;
 	align-items: flex-end;
 	gap: 18px;
+	width: 100%;
+	min-width: 0;
 }
 .heatmap-legend {
 	display: flex;
 	flex-direction: column;
 	align-items: center;
 	gap: 3px;
+	flex: 0 0 auto;
 	font-size: 9px;
 	color: var(--text-muted);
 }
 .heatmap-legend .heatmap-cell {
 	width: 10px;
 	height: 10px;
+	aspect-ratio: auto;
+	flex: none;
+}
+.heatmap-legend .heatmap-cell-num {
+	display: none;
 }
 .heatmap-legend span {
 	margin: 1px 0;
+}
+
+.reset-calendar-section {
+	background: var(--card-bg);
+	border: 1px solid var(--card-border);
+	border-radius: var(--radius-lg);
+	padding: 14px 16px;
+	flex-shrink: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+.reset-calendar-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 10px;
+}
+.reset-calendar-title {
+	font-size: 12px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.6px;
+	color: var(--text-secondary);
+}
+.reset-calendar-meta {
+	font-size: 11px;
+	font-weight: 500;
+	color: var(--text-muted);
+	font-variant-numeric: tabular-nums;
+}
+.reset-calendar-timeline {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+.reset-calendar-days {
+	display: grid;
+	grid-template-columns: repeat(var(--reset-calendar-days, 7), minmax(0, 1fr));
+	gap: 2px;
+}
+.reset-calendar-day {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 3px;
+	padding: 5px 0;
+	border-radius: var(--radius-sm);
+	min-width: 0;
+}
+.reset-calendar-day-name {
+	font-size: 9px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.4px;
+	line-height: 1;
+	color: var(--text-muted);
+	white-space: nowrap;
+	overflow: hidden;
+	max-width: 100%;
+}
+.reset-calendar-day-num {
+	font-size: 11px;
+	font-weight: 600;
+	line-height: 1;
+	color: var(--text-secondary);
+	font-variant-numeric: tabular-nums;
+}
+.reset-calendar-day-reset .reset-calendar-day-num {
+	color: var(--text-primary);
+}
+.reset-calendar-day-today {
+	background: color-mix(in srgb, var(--text-secondary) 12%, transparent);
+}
+.reset-calendar-day-today .reset-calendar-day-name,
+.reset-calendar-day-today .reset-calendar-day-num {
+	color: var(--text-primary);
+}
+.reset-calendar-track {
+	position: relative;
+	height: 16px;
+}
+.reset-calendar-bar {
+	position: absolute;
+	left: 0;
+	right: 0;
+	top: 50%;
+	height: 4px;
+	transform: translateY(-50%);
+	border-radius: 2px;
+	background: color-mix(in srgb, var(--text-secondary) 18%, transparent);
+	overflow: hidden;
+}
+.reset-calendar-bar-elapsed {
+	height: 100%;
+	background: color-mix(in srgb, var(--text-secondary) 50%, transparent);
+}
+.reset-calendar-sep {
+	position: absolute;
+	top: 50%;
+	width: 2px;
+	height: 6px;
+	transform: translate(-50%, -50%);
+	background: var(--card-bg);
+	pointer-events: none;
+}
+.reset-calendar-now {
+	position: absolute;
+	top: 1px;
+	bottom: 1px;
+	width: 2px;
+	transform: translateX(-50%);
+	background: var(--text-primary);
+	border-radius: 1px;
+	z-index: 2;
+}
+.reset-calendar-dot {
+	position: absolute;
+	top: 50%;
+	width: 12px;
+	height: 12px;
+	border-radius: 50%;
+	transform: translate(calc(-50% + var(--dot-offset, 0px)), -50%);
+	border: 2px solid var(--card-bg);
+	z-index: 3;
+	transition: transform 0.15s ease;
+}
+.reset-calendar-dot:hover,
+.reset-calendar-dot.scaled {
+	transform: translate(calc(-50% + var(--dot-offset, 0px)), -50%) scale(1.3);
+	z-index: 4;
+}
+.reset-calendar-labels {
+	display: grid;
+	grid-template-columns: repeat(var(--reset-calendar-days, 7), minmax(0, 1fr));
+	gap: 2px;
+}
+.reset-calendar-label-cell {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 2px;
+	min-width: 0;
+}
+.reset-calendar-label {
+	font-size: 10px;
+	font-weight: 600;
+	line-height: 1.2;
+	white-space: nowrap;
+	display: inline-block;
+	cursor: pointer;
+	transition: transform 0.15s ease;
+	transform-origin: center center;
+}
+.reset-calendar-label:hover,
+.reset-calendar-label.scaled {
+	transform: scale(1.15);
 }
 
 .model-usage-section {
@@ -1184,16 +1604,19 @@ body {
 	color: var(--text-muted);
 }
 .model-usage-bar {
-	height: 4px;
-	background: var(--table-border);
-	border-radius: 2px;
+	height: 2px;
+	background: color-mix(in srgb, var(--text-muted) 35%, transparent);
 	overflow: hidden;
 }
 .model-usage-bar-fill {
 	height: 100%;
-	border-radius: 2px;
-	background: var(--progress-80);
 	transition: width 0.3s ease;
+}
+.model-usage-bar-fill--gemini {
+	background: var(--models-gemini);
+}
+.model-usage-bar-fill--other {
+	background: var(--models-other);
 }
 .model-usage-extra-rows {
 	display: flex;
@@ -1384,7 +1807,187 @@ body {
 	text-overflow: ellipsis;
 }
 
-@container (max-width: 400px) {
+.custom-tooltip {
+	position: fixed;
+	z-index: 1000;
+	pointer-events: none;
+	opacity: 0;
+	visibility: hidden;
+	transform: translateY(4px) scale(0.96);
+	transition: opacity 0.12s cubic-bezier(0.16, 1, 0.3, 1), transform 0.12s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.12s;
+	background: color-mix(in srgb, var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background, var(--card-bg))) 96%, transparent);
+	border: 1px solid color-mix(in srgb, var(--vscode-editorHoverWidget-border, var(--card-border)) 80%, transparent);
+	border-radius: var(--radius-sm);
+	padding: 7px 9px;
+	box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+	backdrop-filter: blur(8px);
+	max-width: min(260px, calc(100vw - 16px));
+	min-width: 90px;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	font-family: var(--vscode-font-family);
+	font-size: 11px;
+	line-height: 1.35;
+	color: var(--text-primary);
+}
+.custom-tooltip.visible {
+	opacity: 1;
+	visibility: visible;
+	transform: translateY(0) scale(1) !important;
+}
+.custom-tooltip[data-placement="bottom"] {
+	transform: translateY(-4px) scale(0.96);
+}
+.custom-tooltip-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+.custom-tooltip-title-wrap {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+}
+.custom-tooltip-title {
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--text-primary);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.custom-tooltip-badge {
+	font-size: 9px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.3px;
+	padding: 1px 5px;
+	border-radius: 3px;
+	background: color-mix(in srgb, var(--text-secondary) 15%, transparent);
+	color: var(--text-secondary);
+	white-space: nowrap;
+	flex-shrink: 0;
+}
+.custom-tooltip-badge.badge-today,
+.custom-tooltip-badge.badge-now {
+	background: color-mix(in srgb, var(--text-primary) 15%, transparent);
+	color: var(--text-primary);
+}
+.custom-tooltip-body {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+	color: var(--text-secondary);
+}
+.custom-tooltip-list {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+}
+.custom-tooltip-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 11px;
+	color: var(--text-secondary);
+}
+.custom-tooltip-dot {
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	flex-shrink: 0;
+}
+.custom-tooltip-sub {
+	font-size: 10px;
+	color: var(--text-muted);
+}
+[data-custom-tooltip] {
+	outline: none;
+}
+[data-custom-tooltip]:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: 1px;
+}
+
+.panel-section-block {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+.panel-section-toolbar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 0 2px;
+	min-height: 22px;
+}
+.panel-section-toolbar-main {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+}
+.panel-section-toolbar-label {
+	font-size: 10px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.4px;
+	color: var(--text-muted);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.panel-section-hidden-tag {
+	font-size: 10px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.4px;
+	color: var(--text-muted);
+	flex-shrink: 0;
+	opacity: 0.75;
+}
+.panel-section-block.is-hidden > :not(.panel-section-toolbar) {
+	opacity: 0.4;
+	pointer-events: none;
+}
+.panel-section-toolbar-actions {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	flex-shrink: 0;
+}
+.panel-section-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 22px;
+	height: 22px;
+	padding: 0;
+	border: none;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	color: var(--text-muted);
+	cursor: pointer;
+	transition: background 0.15s ease, color 0.15s ease;
+}
+.panel-section-btn:hover:not(:disabled) {
+	background: var(--table-row-hover);
+	color: var(--text-primary);
+}
+.panel-section-btn:focus-visible {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: -1px;
+}
+.panel-section-btn:disabled {
+	opacity: 0.35;
+	cursor: default;
+}
+
+@container panel (max-width: 400px) {
 	body {
 		padding: clamp(4px, 2cqw, 8px) clamp(6px, 3cqw, 12px);
 		gap: clamp(6px, 3cqw, 12px);
@@ -1405,22 +2008,34 @@ body {
 	.bucket-value {
 		font-size: clamp(12px, 4.5cqw, 18px);
 	}
-	.quota-label, .heatmap-title, .public-health-title, .model-usage-title, .model-usage-name {
+	.quota-label, .heatmap-title, .public-health-title, .model-usage-title, .model-usage-name, .reset-calendar-title {
 		font-size: clamp(9px, 3cqw, 12px);
 	}
 	.bucket-label, .bucket-reset-time, .reset-label, .reset-value {
 		font-size: clamp(8px, 2.75cqw, 11px);
 	}
-	.heatmap-section, .public-health-section, .model-usage-section {
+	.heatmap-section, .public-health-section, .model-usage-section, .reset-calendar-section {
 		padding: clamp(8px, 3.5cqw, 14px);
 	}
-	.heatmap-cell {
-		width: clamp(8px, 3.5cqw, 14px);
-		height: clamp(8px, 3.5cqw, 14px);
+	.heatmap-body {
+		gap: clamp(8px, 4cqw, 18px);
 	}
 	.heatmap-label {
-		width: clamp(8px, 3.5cqw, 14px);
-		font-size: clamp(7px, 2.25cqw, 9px);
+		font-size: 8px;
+	}
+	.heatmap-cell-num {
+		font-size: clamp(8px, 2.6cqw, 10px);
+	}
+}
+@container panel (max-width: 220px) {
+	.heatmap-label {
+		font-size: 7px;
+		letter-spacing: 0;
+	}
+}
+@container heatmap-cell (max-width: 16px) {
+	.heatmap-cell-num {
+		display: none;
 	}
 }
 `;
@@ -1477,6 +2092,110 @@ function buildInitialLoadingScreen(): string {
 				<div class="panel-loading-subtitle">Finding the local usage API and loading quota data.</div>
 			</div>
 		</div>`;
+}
+
+function formatPanelErrorMessage(message: string): string {
+	return message
+		.replace(/^Connection failed:\s*/i, '')
+		.replace(/\s*Click to retry\.?$/i, '')
+		.trim();
+}
+
+function buildErrorIcon(size = 34): string {
+	return `
+		<svg class="panel-error-icon" width="${size}" height="${size}" viewBox="0 0 16 16" aria-hidden="true">
+			<path fill="var(--error)" d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM7.25 4.75h1.5v4.5h-1.5v-4.5zm0 5.5h1.5V12h-1.5v-1.75z"/>
+		</svg>`;
+}
+
+function buildErrorScreen(message: string): string {
+	const detail = formatPanelErrorMessage(message) || message;
+	return `
+		<div class="panel-loading-screen panel-error-screen" role="alert">
+			${buildErrorIcon()}
+			<div class="panel-error-copy">
+				<div class="panel-error-title">Connection failed</div>
+				<div class="panel-error-message">${escapeHtml(detail)}</div>
+			</div>
+			<div class="panel-error-actions">
+				<div class="panel-error-actions-row">
+					<button type="button" class="panel-error-action" data-action="retry">Retry</button>
+					<button type="button" class="panel-error-action" data-action="copy-error" data-copy-label="Copy error">Copy error</button>
+				</div>
+				<button type="button" class="panel-error-action" data-action="open-issues">GitHub Issues</button>
+			</div>
+		</div>`;
+}
+
+function buildErrorBanner(message: string): string {
+	const detail = formatPanelErrorMessage(message) || message;
+	return `
+		<div class="panel-error-banner" role="alert">
+			<div class="panel-error-banner-header">
+				${buildErrorIcon(18)}
+				<div class="panel-error-banner-text">
+					<div class="panel-error-banner-title">Connection failed</div>
+					<div class="panel-error-message">${escapeHtml(detail)}</div>
+				</div>
+			</div>
+			<div class="panel-error-actions">
+				<div class="panel-error-actions-row">
+					<button type="button" class="panel-error-action" data-action="retry">Retry</button>
+					<button type="button" class="panel-error-action" data-action="copy-error" data-copy-label="Copy error">Copy error</button>
+				</div>
+				<button type="button" class="panel-error-action" data-action="open-issues">GitHub Issues</button>
+			</div>
+		</div>`;
+}
+
+function buildFallbackErrorHtml(message: string): string {
+	const nonce = crypto.randomBytes(16).toString('base64');
+	const detail = escapeHtml(formatPanelErrorMessage(message) || message);
+	return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
+<style>
+body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--vscode-sideBar-background); color: var(--vscode-foreground); font-family: var(--vscode-font-family); }
+.panel-error-fallback { width: min(420px, calc(100% - 32px)); padding: 28px 8px; text-align: center; }
+h1 { margin: 0 0 10px; font-size: 15px; line-height: 1.3; color: #ef4444; }
+p { margin: 0 0 16px; font-size: 13px; line-height: 1.5; word-break: break-word; overflow-wrap: anywhere; white-space: pre-wrap; user-select: text; }
+.panel-error-actions { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
+.panel-error-actions-row { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.panel-error-actions-row .panel-error-action { width: 104px; }
+.panel-error-action { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; font: inherit; font-size: 12px; font-weight: 600; line-height: 1.4; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border, #333)); background: var(--vscode-editor-background); color: var(--vscode-foreground); cursor: pointer; text-decoration: none; user-select: none; }
+.panel-error-action:hover { border-color: var(--vscode-descriptionForeground); }
+</style>
+</head>
+<body>
+	<div class="panel-error-fallback" role="alert">
+		<h1>Couldn't display usage</h1>
+		<p>${detail}</p>
+		<div class="panel-error-actions">
+			<div class="panel-error-actions-row">
+				<button type="button" class="panel-error-action" id="retry">Retry</button>
+				<button type="button" class="panel-error-action" id="copy-error">Copy error</button>
+			</div>
+			<button type="button" class="panel-error-action" id="open-issues">GitHub Issues</button>
+		</div>
+	</div>
+<script nonce="${nonce}">
+const vscodeApi = acquireVsCodeApi();
+document.getElementById('retry').addEventListener('click', () => {
+	vscodeApi.postMessage({ command: 'retry' });
+});
+document.getElementById('copy-error').addEventListener('click', () => {
+	const errorText = document.querySelector('.panel-error-fallback p')?.textContent || '';
+	vscodeApi.postMessage({ command: 'copyError', text: errorText });
+});
+document.getElementById('open-issues').addEventListener('click', () => {
+	vscodeApi.postMessage({ command: 'openIssues' });
+});
+</script>
+</body>
+</html>`;
 }
 
 function buildNotFoundScreen(): string {
@@ -1562,6 +2281,298 @@ function buildPublicHealthChart(publicServiceStatus: PublicServiceStatus | null,
 		</div>`;
 }
 
+interface ResetCalendarEvent {
+	id?: string;
+	label: string;
+	category: string;
+	resetTime: number;
+	colorVar: string;
+}
+
+const RESET_CALENDAR_MIN_DAYS = 7;
+const RESET_CALENDAR_MAX_DAYS = 8;
+const RESET_CALENDAR_CLUSTER_PCT = 3;
+const RESET_CALENDAR_CLUSTER_OFFSET_PX = 7;
+const RESET_CALENDAR_WEEKLY_FALLBACK_MS = 18 * MS_PER_HOUR;
+
+function getLocalDayStart(timestamp: number): number {
+	const date = new Date(timestamp);
+	date.setHours(0, 0, 0, 0);
+	return date.getTime();
+}
+
+function addLocalDays(dayStart: number, days: number): number {
+	const date = new Date(dayStart);
+	date.setDate(date.getDate() + days);
+	return date.getTime();
+}
+
+function getResetCalendarDayCount(todayStart: number, events: ResetCalendarEvent[]): number {
+	const lastReset = events.reduce((max, event) => Math.max(max, event.resetTime), todayStart);
+	let neededDays = 1;
+	let dayStart = todayStart;
+	while (neededDays < RESET_CALENDAR_MAX_DAYS && lastReset >= addLocalDays(dayStart, 1)) {
+		dayStart = addLocalDays(dayStart, 1);
+		neededDays++;
+	}
+	return Math.max(RESET_CALENDAR_MIN_DAYS, neededDays);
+}
+
+function resetCalendarTimePosition(time: number, dayStarts: number[]): number {
+	const dayCount = dayStarts.length - 1;
+	if (time <= dayStarts[0]) {
+		return 0;
+	}
+	for (let i = 0; i < dayCount; i++) {
+		const start = dayStarts[i];
+		const end = dayStarts[i + 1];
+		if (time < end) {
+			return ((i + (time - start) / (end - start)) / dayCount) * 100;
+		}
+	}
+	return 100;
+}
+
+function getResetCalendarCategoryColor(category: string): string {
+	if (category === CATEGORY_NAMES.GEMINI) { return 'var(--models-gemini)'; }
+	if (category === CATEGORY_NAMES.OTHER) { return 'var(--models-other)'; }
+	return 'var(--text-secondary)';
+}
+
+function formatShortWeekday(date: Date, locale?: string): string {
+	return new Intl.DateTimeFormat(locale, { weekday: 'short' }).format(date).replace('.', '');
+}
+
+function getMondayBasedWeekdayLabels(locale?: string): string[] {
+	const monday = new Date(2024, 0, 1);
+	return Array.from({ length: 7 }, (_, i) => {
+		const date = new Date(monday);
+		date.setDate(monday.getDate() + i);
+		return formatShortWeekday(date, locale);
+	});
+}
+
+function collectWeeklyResetEvents(statsData: UsageStatistics | null, now: number = Date.now()): ResetCalendarEvent[] {
+	const groups = statsData?.groups ?? {};
+	const events: ResetCalendarEvent[] = [];
+
+	for (const category of CATEGORY_ORDER) {
+		const group = groups[category];
+		if (!group) {
+			continue;
+		}
+
+		const weeklyBuckets = (group.buckets ?? []).filter(bucket => bucket.window.toLowerCase() === 'weekly');
+
+		if (weeklyBuckets.length > 0) {
+			for (const bucket of weeklyBuckets) {
+				if (bucket.resetTime === null || !Number.isFinite(bucket.resetTime) || bucket.resetTime <= now) {
+					continue;
+				}
+				const resetMs = bucket.resetTime - now;
+				const bucketPct = formatQuotaPercent(bucket.quota);
+				if (isNotStartedQuota(bucketPct, resetMs)) {
+					continue;
+				}
+				const label = weeklyBuckets.length > 1
+					? `${category} · ${bucket.displayName}`
+					: category;
+				events.push({
+					label,
+					category,
+					resetTime: bucket.resetTime,
+					colorVar: getResetCalendarCategoryColor(category),
+				});
+			}
+			continue;
+		}
+
+		if (typeof group.resetTime !== 'number' || !Number.isFinite(group.resetTime) || group.resetTime <= now) {
+			continue;
+		}
+		const resetMs = group.resetTime - now;
+		if (resetMs <= RESET_CALENDAR_WEEKLY_FALLBACK_MS) {
+			continue;
+		}
+		const pct = formatQuotaPercent(group.quota);
+		if (isNotStartedQuota(pct, resetMs)) {
+			continue;
+		}
+		events.push({
+			label: category,
+			category,
+			resetTime: group.resetTime,
+			colorVar: getResetCalendarCategoryColor(category),
+		});
+	}
+
+	events.sort((a, b) => a.resetTime - b.resetTime);
+	events.forEach((event, idx) => {
+		event.id = `reset-evt-${idx}`;
+	});
+	return events;
+}
+
+interface CustomTooltipItem {
+	label: string;
+	color?: string;
+}
+
+interface CustomTooltipOptions {
+	title?: string;
+	badge?: string;
+	badgeClass?: string;
+	content?: string;
+	items?: CustomTooltipItem[];
+	color?: string;
+}
+
+function buildTooltipAttrs(options: CustomTooltipOptions): string {
+	const attrs: string[] = ['data-custom-tooltip'];
+	if (options.title) {
+		attrs.push(`data-tooltip-title="${escapeHtml(options.title)}"`);
+	}
+	if (options.badge) {
+		attrs.push(`data-tooltip-badge="${escapeHtml(options.badge)}"`);
+	}
+	if (options.badgeClass) {
+		attrs.push(`data-tooltip-badge-class="${escapeHtml(options.badgeClass)}"`);
+	}
+	if (options.content) {
+		attrs.push(`data-tooltip-content="${escapeHtml(options.content)}"`);
+	}
+	if (options.color) {
+		attrs.push(`data-tooltip-color="${escapeHtml(options.color)}"`);
+	}
+	if (options.items && options.items.length > 0) {
+		attrs.push(`data-tooltip-items="${escapeHtml(JSON.stringify(options.items))}"`);
+	}
+	return attrs.join(' ');
+}
+
+function buildCustomTooltipElement(): string {
+	return '<div id="custom-tooltip" class="custom-tooltip" role="tooltip" aria-hidden="true"></div>';
+}
+
+function buildResetCalendarSection(statsData: UsageStatistics | null, locale?: string): string {
+	const now = Date.now();
+	const events = collectWeeklyResetEvents(statsData, now);
+	if (events.length === 0) {
+		return '';
+	}
+
+	const todayStart = getLocalDayStart(now);
+	const dayCount = getResetCalendarDayCount(todayStart, events);
+	const dayStarts = Array.from({ length: dayCount + 1 }, (_, i) => addLocalDays(todayStart, i));
+	const nowPct = resetCalendarTimePosition(now, dayStarts);
+
+	const whenFormat = new Intl.DateTimeFormat(locale, {
+		weekday: 'short',
+		month: 'short',
+		day: 'numeric',
+		hour: '2-digit',
+		minute: '2-digit',
+		hour12: false,
+	});
+
+	const eventsByDay = dayStarts.slice(0, dayCount).map((dayStart, i) =>
+		events.filter(event => event.resetTime >= dayStart && event.resetTime < dayStarts[i + 1])
+	);
+
+	const daysHtml = dayStarts.slice(0, dayCount).map((dayStart, i) => {
+		const dayEvents = eventsByDay[i];
+		const classes = ['reset-calendar-day'];
+		if (i === 0) {
+			classes.push('reset-calendar-day-today');
+		}
+		if (dayEvents.length > 0) {
+			classes.push('reset-calendar-day-reset');
+		}
+		const date = new Date(dayStart);
+		const name = formatShortWeekday(date, locale);
+		return `
+				<div class="${classes.join(' ')}">
+					<span class="reset-calendar-day-name">${escapeHtml(name)}</span>
+					<span class="reset-calendar-day-num">${date.getDate()}</span>
+				</div>`;
+	}).join('');
+
+	const labelsHtml = eventsByDay.map(dayEvents => {
+		const labels = dayEvents.map(event => {
+			const timeStr = whenFormat.format(new Date(event.resetTime));
+			const relStr = formatRelativeTime(event.resetTime - now);
+			const tooltipAttrs = buildTooltipAttrs({
+				title: event.label,
+				badge: `in ${relStr}`,
+				color: event.colorVar,
+				content: `${timeStr} · Weekly reset`
+			});
+			const resetIdAttr = event.id ? ` data-reset-id="${escapeHtml(event.id)}"` : '';
+			return `<span class="reset-calendar-label" style="color:${event.colorVar}"${resetIdAttr} ${tooltipAttrs} tabindex="0">${escapeHtml(event.label)}</span>`;
+		}).join('');
+		return `<div class="reset-calendar-label-cell">${labels}</div>`;
+	}).join('');
+
+	const separatorsHtml = Array.from({ length: dayCount - 1 }, (_, i) =>
+		`<div class="reset-calendar-sep" style="left:${((i + 1) / dayCount) * 100}%"></div>`
+	).join('');
+
+	let clusterAnchor = -Infinity;
+	let clusterIndex = 0;
+	const dotsHtml = events.map(event => {
+		const leftPct = resetCalendarTimePosition(event.resetTime, dayStarts);
+		if (leftPct - clusterAnchor < RESET_CALENDAR_CLUSTER_PCT) {
+			clusterIndex++;
+		} else {
+			clusterAnchor = leftPct;
+			clusterIndex = 0;
+		}
+		const timeStr = whenFormat.format(new Date(event.resetTime));
+		const relStr = formatRelativeTime(event.resetTime - now);
+		const tooltipAttrs = buildTooltipAttrs({
+			title: event.label,
+			badge: `in ${relStr}`,
+			color: event.colorVar,
+			content: `${timeStr} · Weekly reset`
+		});
+		const resetIdAttr = event.id ? ` data-reset-id="${escapeHtml(event.id)}"` : '';
+		const offset = clusterIndex * RESET_CALENDAR_CLUSTER_OFFSET_PX;
+		return `<div class="reset-calendar-dot" style="left:${leftPct}%;--dot-offset:${offset}px;background:${event.colorVar}"${resetIdAttr} ${tooltipAttrs} tabindex="0"></div>`;
+	}).join('');
+
+	const nextText = formatRelativeTime(events[0].resetTime - now);
+	const nowTooltipAttrs = buildTooltipAttrs({
+		title: 'Current Time',
+		badge: 'Now',
+		badgeClass: 'badge-now',
+		content: whenFormat.format(new Date(now))
+	});
+
+	return `
+		<div class="reset-calendar-section">
+			<div class="reset-calendar-header">
+				<span class="reset-calendar-title">Reset timeline</span>
+				<span class="reset-calendar-meta">Next in ${escapeHtml(nextText)}</span>
+			</div>
+			<div class="reset-calendar-timeline" style="--reset-calendar-days:${dayCount}">
+				<div class="reset-calendar-days">
+					${daysHtml}
+				</div>
+				<div class="reset-calendar-track">
+					<div class="reset-calendar-bar">
+						<div class="reset-calendar-bar-elapsed" style="width:${nowPct}%"></div>
+					</div>
+					${separatorsHtml}
+					<div class="reset-calendar-now" style="left:${nowPct}%" ${nowTooltipAttrs} tabindex="0"></div>
+					${dotsHtml}
+				</div>
+				<div class="reset-calendar-labels">
+					${labelsHtml}
+				</div>
+			</div>
+		</div>`;
+}
+
 function getHeatmapLevel(consumed: number, maxConsumed: number): number {
 	if (consumed <= 0 || maxConsumed <= 0) { return 0; }
 	const ratio = consumed / maxConsumed;
@@ -1598,15 +2609,16 @@ function buildHeatmapSection(dailyUsage: ReadonlyArray<DailyUsageEntry>, targetM
 		maxConsumed = Math.max(maxConsumed, combined);
 	}
 
-	const dayLabels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+	const dateFormat = new Intl.DateTimeFormat(locale, { weekday: 'long', month: 'short', day: 'numeric' });
+	const dayLabels = getMondayBasedWeekdayLabels(locale);
 	const labelsHtml = dayLabels.map(l =>
-		`<div class="heatmap-label">${l}</div>`
+		`<div class="heatmap-label">${escapeHtml(l)}</div>`
 	).join('');
 
-	let gridHtml = '';
-	for (let d = 0; d < 7; d++) {
+	let weeksHtml = '';
+	for (let w = 0; w < weeks; w++) {
 		let cellsHtml = '';
-		for (let w = 0; w < weeks; w++) {
+		for (let d = 0; d < 7; d++) {
 			const cellDate = new Date(startDate);
 			cellDate.setDate(startDate.getDate() + w * 7 + d);
 			const dateStr = formatLocalDate(cellDate);
@@ -1625,20 +2637,24 @@ function buildHeatmapSection(dailyUsage: ReadonlyArray<DailyUsageEntry>, targetM
 			if (isToday) { classes.push('today'); }
 			if (!isCurrentMonth) { classes.push('other-month'); }
 
-			let tooltip = '';
+			let tooltipAttrs = '';
 			if (!isFuture) {
-				const tooltipDate = new Intl.DateTimeFormat(locale, { weekday: 'short', month: 'short', day: 'numeric' }).format(cellDate);
-				tooltip = consumed > 0
-					? `${tooltipDate}\n${Math.round(consumed * 100)}% consumed`
-					: `${tooltipDate}\nNo activity`;
+				const tooltipDate = dateFormat.format(cellDate);
+				tooltipAttrs = ` ${buildTooltipAttrs({
+					title: tooltipDate,
+					badge: isToday ? 'Today' : undefined,
+					badgeClass: isToday ? 'badge-today' : undefined,
+					content: consumed > 0 ? `${Math.round(consumed * 100)}% consumed` : 'No activity',
+					color: consumed > 0 ? 'var(--success)' : undefined
+				})} tabindex="0"`;
 			}
 
-			cellsHtml += `<div class="${classes.join(' ')}"${tooltip ? ` title="${escapeHtml(tooltip)}"` : ''}></div>`;
+			cellsHtml += `<div class="${classes.join(' ')}"${tooltipAttrs}><span class="heatmap-cell-num">${cellDate.getDate()}</span></div>`;
 		}
-		gridHtml += `<div class="heatmap-column">${cellsHtml}</div>`;
+		weeksHtml += `<div class="heatmap-week">${cellsHtml}</div>`;
 	}
 
-	const monthName = new Intl.DateTimeFormat(locale, { month: 'long' }).format(firstDay);
+	const monthTitle = new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric' }).format(firstDay);
 
 	return `
 		<div class="heatmap-section">
@@ -1648,7 +2664,7 @@ function buildHeatmapSection(dailyUsage: ReadonlyArray<DailyUsageEntry>, targetM
 					<button class="nav-btn" data-action="prevMonth">
 						<svg width="16" height="16" viewBox="0 0 16 16"><path fill="currentColor" d="M11 1.5L4.5 8l6.5 6.5l.707-.707L5.914 8l5.793-5.793L11 1.5z"/></svg>
 					</button>
-					<span class="heatmap-month-title">${escapeHtml(monthName)} ${targetYear}</span>
+					<span class="heatmap-month-title">${escapeHtml(monthTitle)}</span>
 					<button class="nav-btn" data-action="nextMonth">
 						<svg width="16" height="16" viewBox="0 0 16 16"><path fill="currentColor" d="M5 1.5L11.5 8L5 14.5l-.707-.707L10.086 8L4.293 2.207L5 1.5z"/></svg>
 					</button>
@@ -1657,24 +2673,32 @@ function buildHeatmapSection(dailyUsage: ReadonlyArray<DailyUsageEntry>, targetM
 			<div class="heatmap-body">
 				<div class="heatmap-grid">
 					<div class="heatmap-labels">${labelsHtml}</div>
-					<div class="heatmap-columns">${gridHtml}</div>
+					<div class="heatmap-weeks">${weeksHtml}</div>
 				</div>
 				<div class="heatmap-legend">
 					<span>More</span>
-					<div class="heatmap-cell level-4"></div>
-					<div class="heatmap-cell level-3"></div>
-					<div class="heatmap-cell level-2"></div>
-					<div class="heatmap-cell level-1"></div>
-					<div class="heatmap-cell level-0"></div>
+					<div class="heatmap-cell level-4" ${buildTooltipAttrs({ title: 'Activity Level 4', content: 'Highest activity (> 75%)', color: 'var(--success)' })} tabindex="0"></div>
+					<div class="heatmap-cell level-3" ${buildTooltipAttrs({ title: 'Activity Level 3', content: 'High activity (51% – 75%)', color: 'var(--success)' })} tabindex="0"></div>
+					<div class="heatmap-cell level-2" ${buildTooltipAttrs({ title: 'Activity Level 2', content: 'Moderate activity (26% – 50%)', color: 'var(--success)' })} tabindex="0"></div>
+					<div class="heatmap-cell level-1" ${buildTooltipAttrs({ title: 'Activity Level 1', content: 'Low activity (1% – 25%)', color: 'var(--success)' })} tabindex="0"></div>
+					<div class="heatmap-cell level-0" ${buildTooltipAttrs({ title: 'Activity Level 0', content: 'No activity' })} tabindex="0"></div>
 					<span>Less</span>
 				</div>
 			</div>
 		</div>`;
 }
 
-function buildModelUsageRowHtml(entry: ModelUsageEntry, maxCount: number, totalGenerations: number): string {
+function getModelUsageBarFillClass(entry: ModelUsageEntry): string {
+	const model = entry.model.toLowerCase();
+	if (model.includes(MODEL_KEYWORDS.gemini) || model.includes(MODEL_KEYWORDS.flash)) {
+		return 'model-usage-bar-fill--gemini';
+	}
+	return 'model-usage-bar-fill--other';
+}
+
+function buildModelUsageRowHtml(entry: ModelUsageEntry, totalGenerations: number): string {
 	const share = totalGenerations > 0 ? Math.round((entry.count / totalGenerations) * 100) : 0;
-	const widthPct = maxCount > 0 ? Math.max(3, Math.round((entry.count / maxCount) * 100)) : 0;
+	const fillClass = getModelUsageBarFillClass(entry);
 	return `
 		<div class="model-usage-row" title="${escapeHtml(`${entry.label}: ${entry.count} generations`)}">
 			<div class="model-usage-row-top">
@@ -1684,7 +2708,7 @@ function buildModelUsageRowHtml(entry: ModelUsageEntry, maxCount: number, totalG
 				</div>
 				<span class="model-usage-count">${entry.count.toLocaleString()}<span class="model-usage-share">${share}%</span></span>
 			</div>
-			<div class="model-usage-bar"><div class="model-usage-bar-fill" style="width:${widthPct}%"></div></div>
+			<div class="model-usage-bar"><div class="model-usage-bar-fill ${fillClass}" style="width:${share}%"></div></div>
 		</div>`;
 }
 
@@ -1693,12 +2717,11 @@ function buildModelUsageSection(modelUsage: ModelUsageSummary | null): string {
 	if (entries.length === 0) { return ''; }
 
 	const totalGenerations = modelUsage?.totalGenerations ?? 0;
-	const maxCount = entries[0].count;
 	const visibleEntries = entries.slice(0, MODEL_USAGE_COLLAPSED_ROWS);
 	const extraEntries = entries.slice(MODEL_USAGE_COLLAPSED_ROWS);
 
 	const visibleRowsHtml = visibleEntries
-		.map(entry => buildModelUsageRowHtml(entry, maxCount, totalGenerations))
+		.map(entry => buildModelUsageRowHtml(entry, totalGenerations))
 		.join('');
 
 	let extraRowsHtml = '';
@@ -1712,7 +2735,7 @@ function buildModelUsageSection(modelUsage: ModelUsageSummary | null): string {
 					<svg class="model-usage-toggle-less-icon" width="14" height="14" viewBox="0 0 16 16"><path fill="currentColor" d="M8 4.5l5.5 5.5-.7.7L8 5.9l-4.8 4.8-.7-.7L8 4.5z"/></svg>
 				</summary>
 				<div class="model-usage-extra-rows">
-					${extraEntries.map(entry => buildModelUsageRowHtml(entry, maxCount, totalGenerations)).join('')}
+					${extraEntries.map(entry => buildModelUsageRowHtml(entry, totalGenerations)).join('')}
 				</div>
 			</details>`;
 	}
@@ -1735,26 +2758,128 @@ function buildModelUsageSection(modelUsage: ModelUsageSummary | null): string {
 		</div>`;
 }
 
-function buildPanelHtml(statsData: UsageStatistics | null, history: QuotaHistory, heatmapMonth: number, heatmapYear: number, locale?: string, serviceStatus: ServiceStatus = 'disconnected', refreshInterval: number = 60, publicServiceStatus: PublicServiceStatus | null = null, modelUsage: ModelUsageSummary | null = null): string {
+interface PanelBuildContext {
+	statsData: UsageStatistics | null;
+	history: QuotaHistory;
+	heatmapMonth: number;
+	heatmapYear: number;
+	locale?: string;
+	publicServiceStatus: PublicServiceStatus | null;
+	modelUsage: ModelUsageSummary | null;
+}
+
+function getPanelSectionsUpdateTarget(): vscode.ConfigurationTarget {
+	const inspect = vscode.workspace.getConfiguration(CONFIG_NAMESPACE).inspect<string[]>('panelSections');
+	if (inspect?.workspaceFolderValue !== undefined || inspect?.workspaceFolderLanguageValue !== undefined) {
+		return vscode.ConfigurationTarget.WorkspaceFolder;
+	}
+	if (inspect?.workspaceValue !== undefined || inspect?.workspaceLanguageValue !== undefined) {
+		return vscode.ConfigurationTarget.Workspace;
+	}
+	return vscode.ConfigurationTarget.Global;
+}
+
+function buildPanelSectionContent(id: PanelSectionId, ctx: PanelBuildContext): string {
+	switch (id) {
+		case 'plan':
+			return buildTopRow(ctx.statsData);
+		case 'health':
+			return buildPublicHealthChart(ctx.publicServiceStatus, ctx.locale);
+		case 'quotas': {
+			const cards = buildQuotaCards(ctx.statsData, ctx.history, ctx.locale);
+			if (!cards) { return ''; }
+			return `<div class="section"><div class="quota-grid">${cards}</div></div>`;
+		}
+		case 'resets':
+			return buildResetCalendarSection(ctx.statsData, ctx.locale);
+		case 'models':
+			return buildModelUsageSection(ctx.modelUsage);
+		case 'activity':
+			return buildHeatmapSection(ctx.history.getDailyUsage(), ctx.heatmapMonth, ctx.heatmapYear, ctx.locale);
+		default:
+			return '';
+	}
+}
+
+function panelSectionHasContent(id: PanelSectionId, ctx: PanelBuildContext): boolean {
+	return buildPanelSectionContent(id, ctx).length > 0;
+}
+
+function buildPanelSectionToolbar(id: PanelSectionId, isFirst: boolean, isLast: boolean, hidden: boolean): string {
+	const sectionId = escapeHtml(id);
+	const label = escapeHtml(PANEL_SECTION_LABELS[id]);
+	const upDisabled = isFirst ? ' disabled' : '';
+	const downDisabled = isLast ? ' disabled' : '';
+	const hiddenTag = hidden ? '<span class="panel-section-hidden-tag">Hidden</span>' : '';
+	const visibilityButton = hidden
+		? `<button type="button" class="panel-section-btn" data-action="showSection" data-section-id="${sectionId}" title="Show" aria-label="Show ${label}">
+					<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M8 3.2C4.6 3.2 1.8 5.6 1 8c.8 2.4 3.6 4.8 7 4.8s6.2-2.4 7-4.8c-.8-2.4-3.6-4.8-7-4.8zm0 7.6a2.8 2.8 0 1 1 0-5.6 2.8 2.8 0 0 1 0 5.6zM8 6.4a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2z"/></svg>
+				</button>`
+		: `<button type="button" class="panel-section-btn" data-action="hideSection" data-section-id="${sectionId}" title="Hide" aria-label="Hide ${label}">
+					<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L9.06 8l3.22 3.22a.75.75 0 1 1-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06z"/></svg>
+				</button>`;
+	return `
+		<div class="panel-section-toolbar">
+			<div class="panel-section-toolbar-main">
+				<span class="panel-section-toolbar-label">${label}</span>
+				${hiddenTag}
+			</div>
+			<div class="panel-section-toolbar-actions">
+				<button type="button" class="panel-section-btn" data-action="moveSectionUp" data-section-id="${sectionId}" title="Move up"${upDisabled} aria-label="Move ${label} up">
+					<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 4.5l5.5 5.5-.7.7L8 5.9l-4.8 4.8-.7-.7L8 4.5z"/></svg>
+				</button>
+				<button type="button" class="panel-section-btn" data-action="moveSectionDown" data-section-id="${sectionId}" title="Move down"${downDisabled} aria-label="Move ${label} down">
+					<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 11.5L2.5 6l.7-.7L8 10.1l4.8-4.8.7.7L8 11.5z"/></svg>
+				</button>
+				${visibilityButton}
+			</div>
+		</div>`;
+}
+
+function buildOrderedPanelBody(ctx: PanelBuildContext, layout: PanelSectionSlot[], layoutEditing: boolean): string {
+	const rendered = layout.filter(slot => {
+		if (slot.hidden && !layoutEditing) { return false; }
+		if (panelSectionHasContent(slot.id, ctx)) { return true; }
+		return layoutEditing && slot.hidden;
+	});
+	return rendered.map((slot, index) => {
+		const html = buildPanelSectionContent(slot.id, ctx);
+		const toolbar = layoutEditing
+			? buildPanelSectionToolbar(slot.id, index === 0, index === rendered.length - 1, slot.hidden)
+			: '';
+		const hiddenClass = slot.hidden ? ' is-hidden' : '';
+		return `<div class="panel-section-block${hiddenClass}" data-section-id="${escapeHtml(slot.id)}">${toolbar}${html}</div>`;
+	}).join('');
+}
+
+function buildPanelHtml(statsData: UsageStatistics | null, history: QuotaHistory, heatmapMonth: number, heatmapYear: number, locale?: string, serviceStatus: ServiceStatus = 'disconnected', refreshInterval: number = 60, publicServiceStatus: PublicServiceStatus | null = null, modelUsage: ModelUsageSummary | null = null, panelSections: PanelSectionSlot[] = PANEL_SECTION_IDS.map(id => ({ id, hidden: false })), layoutEditing: boolean = false, errorMessage: string | null = null): string {
 	const nonce = crypto.randomBytes(16).toString('base64');
 	const showInitialLoading = serviceStatus === 'loading' && !statsData;
 	const showNotFound = serviceStatus === 'not-found' && !statsData;
-	const isFullScreen = showInitialLoading || showNotFound;
+	const showError = Boolean(errorMessage) && !statsData && !showInitialLoading && !showNotFound;
+	const isFullScreen = showInitialLoading || showNotFound || showError;
 	const bodyClass = isFullScreen ? ' class="panel-loading-body"' : '';
 	let bodyContent: string;
 	if (showInitialLoading) {
 		bodyContent = buildInitialLoadingScreen();
 	} else if (showNotFound) {
 		bodyContent = buildNotFoundScreen();
+	} else if (showError && errorMessage) {
+		bodyContent = buildErrorScreen(errorMessage);
 	} else {
+		const panelCtx: PanelBuildContext = {
+			statsData,
+			history,
+			heatmapMonth,
+			heatmapYear,
+			locale,
+			publicServiceStatus,
+			modelUsage
+		};
+		const errorBanner = errorMessage ? buildErrorBanner(errorMessage) : '';
 		bodyContent = `
-${buildTopRow(statsData)}
-${buildPublicHealthChart(publicServiceStatus, locale)}
-<div class="section">
-	<div class="quota-grid">${buildQuotaCards(statsData, history, locale)}</div>
-</div>
-${buildModelUsageSection(modelUsage)}
-${buildHeatmapSection(history.getDailyUsage(), heatmapMonth, heatmapYear, locale)}
+${errorBanner}
+${buildOrderedPanelBody(panelCtx, panelSections, layoutEditing)}
 	<div class="panel-footer">
 		<span id="lastUpdated">Updated just now</span>
 		<span class="refresh-interval-info">• ${refreshInterval > 0 ? `Auto: ${Math.max(10, refreshInterval)}s` : 'Auto: Off'}</span>
@@ -1773,6 +2898,7 @@ ${getPanelStyles()}
 </head>
 <body${bodyClass}>
 	${bodyContent}
+	${buildCustomTooltipElement()}
 <script nonce="${nonce}">
 const vscode = acquireVsCodeApi();
 const updatedAt = ${Date.now()};
@@ -1801,6 +2927,265 @@ scheduleFooter();
 
 window.addEventListener('contextmenu', (event) => event.preventDefault());
 
+(function initCustomTooltip() {
+	const tooltip = document.getElementById('custom-tooltip');
+	if (!tooltip) return;
+
+	let currentTarget = null;
+	let hoverTimer = null;
+	let warmTimer = null;
+	let isWarm = false;
+
+	function showTooltip(target) {
+		currentTarget = target;
+		tooltip.innerHTML = '';
+
+		const title = target.getAttribute('data-tooltip-title') || '';
+		const badge = target.getAttribute('data-tooltip-badge') || '';
+		const badgeClass = target.getAttribute('data-tooltip-badge-class') || '';
+		const content = target.getAttribute('data-tooltip-content') || '';
+		const color = target.getAttribute('data-tooltip-color') || '';
+		const itemsRaw = target.getAttribute('data-tooltip-items') || '';
+
+		if (!title && !content && !itemsRaw) {
+			hideTooltip();
+			return;
+		}
+
+		if (title || badge) {
+			const header = document.createElement('div');
+			header.className = 'custom-tooltip-header';
+
+			const titleWrap = document.createElement('div');
+			titleWrap.className = 'custom-tooltip-title-wrap';
+
+			if (color && !itemsRaw) {
+				const dot = document.createElement('span');
+				dot.className = 'custom-tooltip-dot';
+				dot.style.backgroundColor = color;
+				titleWrap.appendChild(dot);
+			}
+
+			if (title) {
+				const titleEl = document.createElement('span');
+				titleEl.className = 'custom-tooltip-title';
+				titleEl.textContent = title;
+				titleWrap.appendChild(titleEl);
+			}
+			header.appendChild(titleWrap);
+
+			if (badge) {
+				const badgeEl = document.createElement('span');
+				badgeEl.className = 'custom-tooltip-badge' + (badgeClass ? ' ' + badgeClass : '');
+				badgeEl.textContent = badge;
+				header.appendChild(badgeEl);
+			}
+
+			tooltip.appendChild(header);
+		}
+
+		const body = document.createElement('div');
+		body.className = 'custom-tooltip-body';
+
+		if (itemsRaw) {
+			let parsed = false;
+			try {
+				const items = JSON.parse(itemsRaw);
+				if (Array.isArray(items) && items.length > 0) {
+					parsed = true;
+					const list = document.createElement('div');
+					list.className = 'custom-tooltip-list';
+					for (const item of items) {
+						const row = document.createElement('div');
+						row.className = 'custom-tooltip-row';
+						if (item.color) {
+							const dot = document.createElement('span');
+							dot.className = 'custom-tooltip-dot';
+							dot.style.backgroundColor = item.color;
+							row.appendChild(dot);
+						}
+						const text = document.createElement('span');
+						text.textContent = item.label || '';
+						row.appendChild(text);
+						list.appendChild(row);
+					}
+					body.appendChild(list);
+				}
+			} catch (parseError) {
+				body.textContent = itemsRaw;
+			}
+			if (!parsed && !body.textContent && content) {
+				body.textContent = content;
+			}
+		} else if (content) {
+			const contentEl = document.createElement('span');
+			contentEl.textContent = content;
+			body.appendChild(contentEl);
+		}
+
+		if (body.children.length > 0 || body.textContent) {
+			tooltip.appendChild(body);
+		}
+
+		positionTooltip(target);
+		tooltip.classList.add('visible');
+		tooltip.setAttribute('aria-hidden', 'false');
+		target.setAttribute('aria-describedby', 'custom-tooltip');
+	}
+
+	function positionTooltip(target) {
+		const targetRect = target.getBoundingClientRect();
+		const tipRect = tooltip.getBoundingClientRect();
+		const margin = 8;
+
+		let left = targetRect.left + (targetRect.width / 2) - (tipRect.width / 2);
+		if (left < margin) {
+			left = margin;
+		} else if (left + tipRect.width > window.innerWidth - margin) {
+			left = window.innerWidth - margin - tipRect.width;
+		}
+		if (left < margin) {
+			left = margin;
+		}
+
+		let top = targetRect.top - tipRect.height - 6;
+		let placement = 'top';
+		if (top < margin) {
+			top = targetRect.bottom + 6;
+			placement = 'bottom';
+			if (top + tipRect.height > window.innerHeight - margin) {
+				top = window.innerHeight - margin - tipRect.height;
+			}
+		}
+
+		tooltip.style.left = Math.round(left) + 'px';
+		tooltip.style.top = Math.round(top) + 'px';
+		tooltip.setAttribute('data-placement', placement);
+	}
+
+	function hideTooltip() {
+		if (hoverTimer) {
+			clearTimeout(hoverTimer);
+			hoverTimer = null;
+		}
+		if (!currentTarget) return;
+		currentTarget.removeAttribute('aria-describedby');
+		currentTarget = null;
+		tooltip.classList.remove('visible');
+		tooltip.setAttribute('aria-hidden', 'true');
+	}
+
+	function scheduleShow(target, immediate) {
+		if (hoverTimer) {
+			clearTimeout(hoverTimer);
+			hoverTimer = null;
+		}
+		if (warmTimer) {
+			clearTimeout(warmTimer);
+			warmTimer = null;
+		}
+
+		if (immediate || isWarm) {
+			showTooltip(target);
+			isWarm = true;
+		} else {
+			hoverTimer = setTimeout(() => {
+				hoverTimer = null;
+				showTooltip(target);
+				isWarm = true;
+			}, 100);
+		}
+	}
+
+	function scheduleHide() {
+		if (hoverTimer) {
+			clearTimeout(hoverTimer);
+			hoverTimer = null;
+		}
+		hideTooltip();
+		if (warmTimer) {
+			clearTimeout(warmTimer);
+		}
+		warmTimer = setTimeout(() => {
+			warmTimer = null;
+			isWarm = false;
+		}, 250);
+	}
+
+	document.addEventListener('pointerover', (e) => {
+		const target = e.target.closest('[data-custom-tooltip]');
+		if (target) {
+			scheduleShow(target, false);
+		}
+	});
+
+	document.addEventListener('pointerout', (e) => {
+		if (currentTarget && !currentTarget.contains(e.relatedTarget)) {
+			const next = e.relatedTarget && e.relatedTarget.closest ? e.relatedTarget.closest('[data-custom-tooltip]') : null;
+			if (!next) {
+				scheduleHide();
+			}
+		}
+	});
+
+	document.addEventListener('focusin', (e) => {
+		const target = e.target.closest('[data-custom-tooltip]');
+		if (target) {
+			scheduleShow(target, true);
+		}
+	});
+
+	document.addEventListener('focusout', (e) => {
+		if (currentTarget) {
+			scheduleHide();
+		}
+	});
+
+	document.addEventListener('scroll', hideTooltip, true);
+	window.addEventListener('resize', hideTooltip);
+	window.addEventListener('blur', hideTooltip);
+	document.addEventListener('mouseleave', hideTooltip);
+})();
+
+(function initResetSyncHover() {
+	let currentScaledId = null;
+
+	function setResetScale(id) {
+		if (currentScaledId === id) return;
+		if (currentScaledId) {
+			document.querySelectorAll('[data-reset-id="' + currentScaledId + '"]').forEach(el => el.classList.remove('scaled'));
+			currentScaledId = null;
+		}
+		if (id) {
+			currentScaledId = id;
+			document.querySelectorAll('[data-reset-id="' + id + '"]').forEach(el => el.classList.add('scaled'));
+		}
+	}
+
+	document.addEventListener('pointerover', (e) => {
+		const el = e.target.closest('[data-reset-id]');
+		setResetScale(el ? el.getAttribute('data-reset-id') : null);
+	});
+
+	document.addEventListener('pointerout', (e) => {
+		if (currentScaledId) {
+			const next = e.relatedTarget && e.relatedTarget.closest ? e.relatedTarget.closest('[data-reset-id]') : null;
+			if (!next || next.getAttribute('data-reset-id') !== currentScaledId) {
+				setResetScale(null);
+			}
+		}
+	});
+
+	document.addEventListener('focusin', (e) => {
+		const el = e.target.closest('[data-reset-id]');
+		if (el) setResetScale(el.getAttribute('data-reset-id'));
+	});
+
+	document.addEventListener('focusout', (e) => {
+		if (currentScaledId) setResetScale(null);
+	});
+})();
+
 function openAntigravitySettings() {
 	vscode.postMessage({ command: 'openAntigravitySettings' });
 }
@@ -1813,6 +3198,23 @@ function nextMonth() {
 	vscode.postMessage({ command: 'nextMonth' });
 }
 
+function postSectionLayout(action, sectionId, direction) {
+	vscode.postMessage({ command: action, sectionId, direction });
+}
+
+document.querySelectorAll('[data-action="moveSectionUp"]').forEach(el => {
+	el.addEventListener('click', () => postSectionLayout('moveSection', el.getAttribute('data-section-id'), 'up'));
+});
+document.querySelectorAll('[data-action="moveSectionDown"]').forEach(el => {
+	el.addEventListener('click', () => postSectionLayout('moveSection', el.getAttribute('data-section-id'), 'down'));
+});
+document.querySelectorAll('[data-action="hideSection"]').forEach(el => {
+	el.addEventListener('click', () => postSectionLayout('hideSection', el.getAttribute('data-section-id')));
+});
+document.querySelectorAll('[data-action="showSection"]').forEach(el => {
+	el.addEventListener('click', () => postSectionLayout('showSection', el.getAttribute('data-section-id')));
+});
+
 function clearCatHistory(event, el) {
 	event.preventDefault();
 	event.stopPropagation();
@@ -1821,6 +3223,32 @@ function clearCatHistory(event, el) {
 		category: el.getAttribute('data-category')
 	});
 }
+
+document.querySelectorAll('[data-action="retry"]').forEach(el => {
+	el.addEventListener('click', () => {
+		vscode.postMessage({ command: 'retry' });
+	});
+});
+
+document.querySelectorAll('[data-action="copy-error"]').forEach(el => {
+	el.addEventListener('click', () => {
+		const errorText = el.closest('.panel-error-screen, .panel-error-banner')?.querySelector('.panel-error-message')?.textContent || '';
+		vscode.postMessage({ command: 'copyError', text: errorText });
+	});
+});
+
+document.querySelectorAll('[data-action="open-issues"]').forEach(el => {
+	el.addEventListener('click', () => vscode.postMessage({ command: 'openIssues' }));
+});
+
+window.addEventListener('message', (event) => {
+	if (event.data?.command !== 'copyErrorResult') return;
+	document.querySelectorAll('[data-action="copy-error"]').forEach(el => {
+		const originalLabel = el.getAttribute('data-copy-label') || 'Copy error';
+		el.textContent = event.data.success ? 'Copied' : 'Copy failed';
+		window.setTimeout(() => { el.textContent = originalLabel; }, 1800);
+	});
+});
 
 document.querySelectorAll('[data-action="openModels"]').forEach(el => {
 	el.addEventListener('click', openAntigravitySettings);

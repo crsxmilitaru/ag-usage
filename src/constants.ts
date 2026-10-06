@@ -7,6 +7,9 @@ export const EXTENSION_TITLE = 'AG Usage';
 export const SETTINGS_COMMAND = 'ag-usage.openSettings';
 export const OPEN_PANEL_COMMAND = 'ag-usage.openPanel';
 export const EXPORT_HISTORY_COMMAND = 'ag-usage.exportHistory';
+export const TOGGLE_PANEL_LAYOUT_EDIT_COMMAND = 'ag-usage.togglePanelLayoutEdit';
+export const FINISH_PANEL_LAYOUT_EDIT_COMMAND = 'ag-usage.finishPanelLayoutEdit';
+export const PANEL_LAYOUT_EDITING_CONTEXT = 'ag-usage.panelLayoutEditing';
 export const INITIAL_DELAY_MS = 1500;
 export const MIN_DISPLAY_DELAY_MS = 300;
 export const STATUS_BAR_PRIORITY = 100;
@@ -83,6 +86,17 @@ export const THEME_COLORS = {
   }
 };
 
+export const MODELS_COLORS = {
+  light: {
+    gemini: '#0d6e96',
+    other: '#0d9488'
+  },
+  dark: {
+    gemini: '#1d8aad',
+    other: '#1d998a'
+  }
+} as const;
+
 export const CATEGORY_NAMES = {
   GEMINI: 'Gemini',
   OTHER: 'Other'
@@ -105,4 +119,16 @@ export const BUCKET_OPACITY = {
   weeklyBg: 0.015,
   defaultBorder: 1.0,
   weeklyBorder: 0.4
+};
+
+export const PANEL_SECTION_IDS = ['plan', 'health', 'quotas', 'resets', 'models', 'activity'] as const;
+export type PanelSectionId = typeof PANEL_SECTION_IDS[number];
+export const DEFAULT_PANEL_SECTIONS: readonly PanelSectionId[] = PANEL_SECTION_IDS;
+export const PANEL_SECTION_LABELS: Record<PanelSectionId, string> = {
+  plan: 'Plan and credits',
+  health: 'Service health',
+  quotas: 'Quota cards',
+  resets: 'Reset timeline',
+  models: 'Most used models',
+  activity: 'Usage activity'
 };

@@ -5,6 +5,7 @@ import {
 	CONFIG_NAMESPACE,
 	DEFAULT_REFRESH_INTERVAL,
 	EXPORT_HISTORY_COMMAND,
+	FINISH_PANEL_LAYOUT_EDIT_COMMAND,
 	EXTENSION_TITLE,
 	FAILED_REFRESH_DELAY_MS,
 	GOOGLE_ANTIGRAVITY_EXTENSION_ID,
@@ -13,14 +14,16 @@ import {
 	MIN_DISPLAY_DELAY_MS,
 	MS_PER_SECOND,
 	OPEN_PANEL_COMMAND,
+	PANEL_LAYOUT_EDITING_CONTEXT,
 	PUBLIC_STATUS_REFRESH_INTERVAL_MS,
 	REFRESH_COMMAND,
 	SETTINGS_COMMAND,
+	TOGGLE_PANEL_LAYOUT_EDIT_COMMAND,
 	STATUS_BAR_PRIORITY,
 	USE_MOCK_DATA
 } from './constants';
 import { isAntigravityIde } from './environment';
-import { createErrorTooltip } from './formatter';
+import { createErrorTooltip, getConnectionErrorDetail } from './formatter';
 import { QuotaHistory, QuotaHistoryEntry } from './history';
 import { fetchModelUsage } from './modelusage';
 import { NotificationManager } from './notifications';
@@ -178,10 +181,13 @@ export function activate(context: vscode.ExtensionContext) {
 		);
 	}
 
+	void vscode.commands.executeCommand('setContext', PANEL_LAYOUT_EDITING_CONTEXT, false);
+
 	state = new ExtensionState(context);
 	state.usageViewProvider.onDidBecomeVisible = () => {
 		refresh(true, { includePublicStatus: true }).catch(err => state?.log('Refresh after opening panel failed', err));
 	};
+	state.usageViewProvider.log = (message, error) => state?.log(message, error);
 	state.usageViewProvider.update(state.lastStatsData, state.quotaHistory, state.serviceStatus, state.publicServiceStatus, state.modelUsage);
 	context.subscriptions.push(state);
 
@@ -205,6 +211,12 @@ export function activate(context: vscode.ExtensionContext) {
 				state?.log('Failed to open Antigravity models settings', error);
 				vscode.window.showWarningMessage('Could not open Antigravity model settings. This Antigravity version may not support it.');
 			}
+		}),
+		vscode.commands.registerCommand(TOGGLE_PANEL_LAYOUT_EDIT_COMMAND, () => {
+			state?.usageViewProvider.toggleLayoutEditing();
+		}),
+		vscode.commands.registerCommand(FINISH_PANEL_LAYOUT_EDIT_COMMAND, () => {
+			state?.usageViewProvider.toggleLayoutEditing();
 		}),
 		vscode.commands.registerCommand(EXPORT_HISTORY_COMMAND, async () => {
 			if (!state) return;
@@ -281,6 +293,11 @@ export function activate(context: vscode.ExtensionContext) {
 				}
 			}
 
+			const panelSectionsChanged = e.affectsConfiguration(`${CONFIG_NAMESPACE}.panelSections`);
+			if (panelSectionsChanged) {
+				state.usageViewProvider.updateView();
+			}
+
 			if (e.affectsConfiguration(`${CONFIG_NAMESPACE}.refreshInterval`) || e.affectsConfiguration(`${CONFIG_NAMESPACE}.pauseWhenUnfocused`)) {
 				startAutoRefresh(false);
 				return;
@@ -289,6 +306,7 @@ export function activate(context: vscode.ExtensionContext) {
 			if (e.affectsConfiguration(`${CONFIG_NAMESPACE}.statusBarAlignment`) || e.affectsConfiguration(`${CONFIG_NAMESPACE}.statusBarPriority`)) {
 				state.recreateStatusBarItem();
 			}
+			if (panelSectionsChanged) { return; }
 
 			if (!rerenderFromCache()) {
 				refresh(false).catch(err => state?.log('Refresh after configuration change failed', err));
@@ -477,7 +495,7 @@ async function refresh(showRefreshing: boolean, options: RefreshOptions = {}) {
 	const currentState = state;
 	currentState.refreshIncludesPublicStatus = needsPublicStatus;
 	currentState.serviceStatus = 'loading';
-	currentState.usageViewProvider.update(currentState.lastStatsData, currentState.quotaHistory, currentState.serviceStatus, currentState.publicServiceStatus, currentState.modelUsage);
+	currentState.usageViewProvider.update(currentState.lastStatsData, currentState.quotaHistory, currentState.serviceStatus, currentState.publicServiceStatus, currentState.modelUsage, null);
 
 	const refreshPublicStatus = async (): Promise<PublicServiceStatus | null> => {
 		try {
@@ -530,7 +548,7 @@ async function refresh(showRefreshing: boolean, options: RefreshOptions = {}) {
 			currentState.notificationManager.checkQuotaNotifications(statsData, previousStatsData);
 		}
 
-		currentState.usageViewProvider.update(dataToDisplay, currentState.quotaHistory, currentState.serviceStatus, currentState.publicServiceStatus, currentState.modelUsage);
+		currentState.usageViewProvider.update(dataToDisplay, currentState.quotaHistory, currentState.serviceStatus, currentState.publicServiceStatus, currentState.modelUsage, null);
 		currentState.context.globalState.update('quotaHistory', currentState.quotaHistory.getRawEntries());
 		currentState.context.globalState.update('quotaDailyUsage', currentState.quotaHistory.getRawDailyUsage());
 
@@ -594,6 +612,7 @@ async function refresh(showRefreshing: boolean, options: RefreshOptions = {}) {
 			currentState.publicServiceStatus = await publicStatusPromise;
 			if (!currentState.isActive) { return; }
 			const err = error instanceof Error ? error : new Error(String(error));
+			const connectionError = getConnectionErrorDetail(err);
 			currentState.log('Refresh failed', err);
 			if (!isAntigravityIde() && isProcessNotFoundError(err)) {
 				currentState.serviceStatus = 'not-found';
@@ -610,7 +629,8 @@ async function refresh(showRefreshing: boolean, options: RefreshOptions = {}) {
 			if (modelUsagePromise) {
 				currentState.modelUsage = (await modelUsagePromise) ?? currentState.modelUsage;
 			}
-			currentState.usageViewProvider.update(currentState.lastStatsData, currentState.quotaHistory, currentState.serviceStatus, currentState.publicServiceStatus, currentState.modelUsage);
+			const panelError = currentState.serviceStatus === 'disconnected' ? connectionError : null;
+			currentState.usageViewProvider.update(currentState.lastStatsData, currentState.quotaHistory, currentState.serviceStatus, currentState.publicServiceStatus, currentState.modelUsage, panelError);
 		}
 	};
 

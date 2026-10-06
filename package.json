@@ -1,6 +1,6 @@
 {
   "name": "ag-usage",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "displayName": "AG Usage",
   "description": "Track usage of Antigravity AI models",
   "author": "Cristian Militaru",
@@ -77,6 +77,16 @@
         "command": "ag-usage.exportHistory",
         "title": "Export History to JSON",
         "icon": "$(save)"
+      },
+      {
+        "command": "ag-usage.togglePanelLayoutEdit",
+        "title": "Edit Dashboard Layout",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "ag-usage.finishPanelLayoutEdit",
+        "title": "Done Editing Layout",
+        "icon": "$(check)"
       }
     ],
     "configuration": {
@@ -204,10 +214,50 @@
           "type": "boolean",
           "default": true,
           "description": "Fetch public Google Antigravity service health from StatusGator."
+        },
+        "ag-usage.panelSections": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "plan",
+              "health",
+              "quotas",
+              "resets",
+              "models",
+              "activity",
+              "!plan",
+              "!health",
+              "!quotas",
+              "!resets",
+              "!models",
+              "!activity"
+            ]
+          },
+          "default": [
+            "plan",
+            "health",
+            "quotas",
+            "resets",
+            "models",
+            "activity"
+          ],
+          "uniqueItems": true,
+          "description": "Dashboard section order. Prefix a section with ! to hide it in place (for example !health). Hidden sections stay in this order, appear dimmed while editing the layout, and can be shown again from there."
         }
       }
     },
     "menus": {
+      "commandPalette": [
+        {
+          "command": "ag-usage.togglePanelLayoutEdit",
+          "when": "false"
+        },
+        {
+          "command": "ag-usage.finishPanelLayoutEdit",
+          "when": "false"
+        }
+      ],
       "view/title": [
         {
           "command": "ag-usage.exportHistory",
@@ -223,6 +273,16 @@
           "command": "ag-usage.openSettings",
           "when": "view == ag-usage.sidebarPanel",
           "group": "navigation@3"
+        },
+        {
+          "command": "ag-usage.togglePanelLayoutEdit",
+          "when": "view == ag-usage.sidebarPanel && !ag-usage.panelLayoutEditing",
+          "group": "navigation@4"
+        },
+        {
+          "command": "ag-usage.finishPanelLayoutEdit",
+          "when": "view == ag-usage.sidebarPanel && ag-usage.panelLayoutEditing",
+          "group": "navigation@4"
         }
       ]
     }
@@ -231,12 +291,12 @@
     "vscode:prepublish": "npm run compile",
     "compile": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --minify --tree-shaking=true",
     "watch": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --sourcemap --watch",
-    "package": "npx vsce package",
+    "package": "npx @vscode/vsce package",
     "convert-svg": "node scripts/convert-svg.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "publish:ovsx": "npx ovsx publish",
-    "publish:vsce": "npx vsce publish",
+    "publish:vsce": "npx @vscode/vsce publish",
     "publish": "npm run publish:ovsx && npm run publish:vsce"
   },
   "devDependencies": {

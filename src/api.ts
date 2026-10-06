@@ -11,7 +11,7 @@ import {
 } from './constants';
 import { getPlatformStrategy } from './platform';
 import { ProcessId, ProcessInfo, QuotaBucket, QuotaGroup, ServerQuotaSummaryResponse, ServerUserStatusResponse, UsageStatistics } from './types';
-import { delay, getErrorMessage, MAX_BUFFER_SIZE, sortQuotaBuckets, validatePid, validatePort } from './utils';
+import { delay, getErrorMessage, MAX_BUFFER_SIZE, normalizeModelName, sortQuotaBuckets, validatePid, validatePort } from './utils';
 
 type DiscoveryLogger = (message: string) => void;
 
@@ -223,7 +223,7 @@ export async function discoverConnection(log: DiscoveryLogger): Promise<Discover
 }
 
 async function checkLegacyPort(port: number, csrfToken: string): Promise<void> {
-  await makeRequest(port, csrfToken, API_ENDPOINTS.GET_UNLEASH_DATA, {
+  await makeProtocolRequest(port, csrfToken, API_ENDPOINTS.GET_UNLEASH_DATA, {
     context: { properties: { ide: IDE_INFO.NAME, ideVersion: IDE_INFO.VERSION } }
   });
 }
@@ -584,8 +584,9 @@ export async function fetchStats(port: number, csrfToken: string): Promise<Usage
     const group = groups[category];
     if (group) {
       group.models ??= [];
-      if (!group.models.includes(label)) {
-        group.models.push(label);
+      const modelName = normalizeModelName(label);
+      if (modelName && !group.models.includes(modelName)) {
+        group.models.push(modelName);
       }
     }
   }

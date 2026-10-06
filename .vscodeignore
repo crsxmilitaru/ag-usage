@@ -21,5 +21,6 @@ assets/**
 scripts/**
 dev/**
 .idea/**
-GEMINI.md
+.nvmrc
+AGENTS.md
 eslint.config.mjs

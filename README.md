@@ -22,10 +22,18 @@
 
 ## ✨ Features
 
-- **Webview panel**: Includes a dashboard showing your current model quotas, Extra Credits, most used models, StatusGator public health information, an interactive usage history log with trend sparklines, and a usage activity heatmap with monthly navigation.
+- **Webview panel**: Includes a dashboard showing your current model quotas, Extra Credits, reset timeline, most used models, StatusGator public health information, an interactive usage history log with trend sparklines, and a usage activity heatmap with monthly navigation.
 
   <p align="center">
     <img src="https://raw.githubusercontent.com/crsxmilitaru/ag-usage/main/assets/panel.png" alt="AG Usage Dashboard Panel Preview" width="800">
+  </p>
+
+- **Customizable dashboard layout**: Reorder or hide dashboard sections using the layout edit mode in the dashboard title bar or via extension settings.
+
+- **Reset timeline**: Displays a visual timeline of upcoming weekly quota resets across days.
+
+  <p align="center">
+    <img src="https://raw.githubusercontent.com/crsxmilitaru/ag-usage/main/assets/calendar.png" alt="AG Usage Reset Timeline Preview" width="368">
   </p>
 
 - **Status bar integration**: Displays a configurable status bar item showing your model quota usage.
@@ -95,6 +103,8 @@
 
 - `ag-usage.enablePublicStatus`: Fetch public Google Antigravity service health from StatusGator. When disabled, the dashboard only checks the local usage API. Default is `true`.
 
+- `ag-usage.panelSections`: Dashboard section order (`plan`, `health`, `quotas`, `resets`, `models`, `activity`). Prefix a section with `!` to hide it (for example `!health`). Reorder or hide sections from the dashboard title bar, or edit this list in settings. Default is all six in that order.
+
 - `ag-usage.maxHistoryItems`: Maximum number of history items to persist per group. Default is `50`.
 
 ## ⚙️ Commands
@@ -124,7 +134,7 @@
 ## 💡 Inspiration
 
 - This extension was inspired by the [AntigravityQuota](https://github.com/ArataAI/AntigravityQuota) extension, which provides similar functionality.
-- Also, inspired by the [progressbar](https://github.com/guibranco/progressbar) idea for creating progress bars in markdown tooltips because VS Code extension API does not support popup menus like the GitHub Copilot one.
+- Also, inspired by the [progressbar](https://github.com/guibranco/progressbar) idea for creating progress bars in markdown tooltips because VS Code extension API does not support pop-up menus like the GitHub Copilot one.
 
 ---
 

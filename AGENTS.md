@@ -10,24 +10,24 @@ AG Usage (`ag-usage`) is a Visual Studio Code extension designed to monitor and 
 - **Language**: TypeScript (target ES2022, Node16 module resolution)
 - **Build Tool**: esbuild (`^0.28.2`)
 - **Linter**: ESLint v9+ flat config (`eslint.config.mjs`, `typescript-eslint`)
-- **Runtime**: Node.js (VS Code Extension Host)
+- **Runtime**: Node.js (VS Code Extension Host, `.nvmrc` specifies `v24.15.0`)
 
 ## Project Structure
 
-- `src/extension.ts`: Extension entry point. Handles activation, deactivation, command registrations, configuration change events, `ExtensionState` lifecycle management, and refresh scheduling.
+- `src/extension.ts`: Extension entry point. Handles activation, deactivation, command registrations (refresh, settings, panel, layout editing, history export), configuration change events, `ExtensionState` lifecycle management, and refresh scheduling.
 - `src/api.ts`: API interaction layer. Discovers running Antigravity processes, extracts CSRF tokens and ports, communicates with internal `LanguageServerService` endpoints (`RetrieveUserQuotaSummary`, `GetUserStatus`, `GetUnleashData`), and aggregates quota statistics.
 - `src/renderer.ts`: Status bar rendering logic. Constructs status bar text, countdown indicators, and rich Markdown tooltips.
-- `src/panel.ts`: Webview panel provider (`UsageViewProvider` implementing `vscode.WebviewViewProvider`). Renders the interactive sidebar dashboard (`ag-usage.sidebarPanel`) with live quota gauges, daily activity heatmap, history charts, model lists, and service health status.
+- `src/panel.ts`: Webview panel provider (`UsageViewProvider` implementing `vscode.WebviewViewProvider`). Renders the interactive sidebar dashboard (`ag-usage.sidebarPanel`) with live quota gauges, reset timeline, daily activity heatmap, history charts, model lists, service health status, customizable section layout, and actionable error screens.
 - `src/history.ts`: State management for quota history and daily usage tracking (`QuotaHistory`, `QuotaHistoryEntry`, `DailyUsageEntry`).
 - `src/modelusage.ts`: Local model usage scanner. Parses SQLite `gen_metadata` generation records across Antigravity storage directories (`~/.gemini/antigravity`, `~/.gemini/antigravity-ide`, `~/.gemini/antigravity-cli`) and aggregates per-model, per-thinking-level generation counts for the "Most Used Models" panel section.
-- `src/formatter.ts`: Helper functions for formatting dates, times, relative countdowns, quota percentages, and error tooltips.
+- `src/formatter.ts`: Helper functions for formatting dates, times, relative countdowns, quota percentages, connection error details, and error tooltips.
 - `src/notifications.ts`: Quota alerts and threshold notifications (`NotificationManager`) for full quota refills and low quota warnings.
 - `src/statusgator.ts`: Public service status monitor. Scrapes and parses Google Antigravity service health and outage reports from StatusGator.
 - `src/environment.ts`: Environment detection helper (e.g., detects if running inside Antigravity IDE or standard VS Code).
 - `src/platform.ts`: Cross-platform process query strategies (`WindowsPlatform` and `UnixPlatform`) for querying OS processes and parsing network ports.
-- `src/constants.ts`: Configuration keys, command IDs, default values, API endpoints, time constants, and UI theme colors.
+- `src/constants.ts`: Configuration keys, command IDs, context keys, default values, panel section definitions, API endpoints, time constants, and UI theme colors.
 - `src/types.ts`: TypeScript interfaces and type definitions for API responses, quota metrics, platform discovery, and extension state.
-- `src/utils.ts`: General helper utilities (data sanitization, PID/port validation, delay, HTML escaping).
+- `src/utils.ts`: General helper utilities (data sanitization, PID/port validation, delay, HTML escaping, model name normalization, and panel section layout reordering/hiding).
 - `package.json`: Defines extension manifest, activation events, sidebar webview view container, commands, configuration properties, menus, and build scripts.
 - `tsconfig.json`: TypeScript compiler configuration.
 - `eslint.config.mjs`: ESLint configuration for code quality and style rules.

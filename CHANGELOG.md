@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.0] - 2026-10-06
+
+- Added "Reset timeline" section to the dashboard panel for upcoming weekly quota resets
+- Added move, hide, and restore for dashboard sections (`ag-usage.panelSections`)
+- Added custom tooltips with hover tracking and keyboard access
+- Added full-screen error view and retry banner to the dashboard panel
+- Cleaned up model names in the group info pop-up
+
 ## [2.0.1] - 2026-08-29
 
 - Added "Most Used Models" section to the dashboard panel, showing per-model generation counts

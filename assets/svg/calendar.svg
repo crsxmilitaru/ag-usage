@@ -1,0 +1,87 @@
+<svg width="368" height="164" viewBox="0 0 368 164" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="AG Usage Reset Timeline Preview">
+  <style>
+    .hdr-title { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 11px; font-weight: 700; fill: #a1a1aa; letter-spacing: 0.8px; }
+    .hdr-meta { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 11px; font-weight: 500; fill: #71717a; }
+    .day-name { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 9px; font-weight: 600; fill: #71717a; letter-spacing: 0.4px; text-anchor: middle; }
+    .day-num { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 11px; font-weight: 600; fill: #a1a1aa; text-anchor: middle; }
+    .day-today-name { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 9px; font-weight: 700; fill: #ffffff; letter-spacing: 0.4px; text-anchor: middle; }
+    .day-today-num { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 11px; font-weight: 700; fill: #ffffff; text-anchor: middle; }
+    .day-reset-num { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 11px; font-weight: 700; fill: #ffffff; text-anchor: middle; }
+    .model-label { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 11px; font-weight: 600; text-anchor: middle; }
+  </style>
+
+  <!-- Outer Container (Matching Panel and Tooltip Style) -->
+  <rect x="0" y="0" width="368" height="164" rx="12" fill="#18181b" stroke="#27272a" stroke-width="1.5"/>
+
+  <!-- Reset Timeline Card -->
+  <g transform="translate(14, 14)">
+    <rect x="0" y="0" width="340" height="136" rx="10" fill="#1e1e22" stroke="#2b2b30" stroke-width="1"/>
+
+    <!-- Header -->
+    <text x="18" y="26" class="hdr-title">RESET TIMELINE</text>
+    <text x="322" y="26" text-anchor="end" class="hdr-meta">Next in 1d 11h</text>
+
+    <!-- Days Row -->
+    <!-- Day 1: Today (MON 5) -->
+    <rect x="20" y="39" width="34" height="35" rx="6" fill="#ffffff" fill-opacity="0.08"/>
+    <text x="37" y="52" class="day-today-name">MON</text>
+    <text x="37" y="67" class="day-today-num">5</text>
+
+    <!-- Day 2: TUE 6 -->
+    <text x="75" y="52" class="day-name">TUE</text>
+    <text x="75" y="67" class="day-num">6</text>
+
+    <!-- Day 3: WED 7 (Reset Day) -->
+    <text x="113" y="52" class="day-name">WED</text>
+    <text x="113" y="67" class="day-reset-num">7</text>
+
+    <!-- Day 4: THU 8 -->
+    <text x="151" y="52" class="day-name">THU</text>
+    <text x="151" y="67" class="day-num">8</text>
+
+    <!-- Day 5: FRI 9 -->
+    <text x="189" y="52" class="day-name">FRI</text>
+    <text x="189" y="67" class="day-num">9</text>
+
+    <!-- Day 6: SAT 10 -->
+    <text x="227" y="52" class="day-name">SAT</text>
+    <text x="227" y="67" class="day-num">10</text>
+
+    <!-- Day 7: SUN 11 -->
+    <text x="265" y="52" class="day-name">SUN</text>
+    <text x="265" y="67" class="day-num">11</text>
+
+    <!-- Day 8: MON 12 (Reset Day) -->
+    <text x="303" y="52" class="day-name">MON</text>
+    <text x="303" y="67" class="day-reset-num">12</text>
+
+    <!-- Track Bar -->
+    <rect x="18" y="87" width="304" height="4" rx="2" fill="#2a2a2e"/>
+
+    <!-- Elapsed Bar -->
+    <rect x="18" y="87" width="35" height="4" rx="2" fill="#52525b"/>
+
+    <!-- Track Separators -->
+    <rect x="55" y="86" width="2" height="6" fill="#1e1e22"/>
+    <rect x="93" y="86" width="2" height="6" fill="#1e1e22"/>
+    <rect x="131" y="86" width="2" height="6" fill="#1e1e22"/>
+    <rect x="169" y="86" width="2" height="6" fill="#1e1e22"/>
+    <rect x="207" y="86" width="2" height="6" fill="#1e1e22"/>
+    <rect x="245" y="86" width="2" height="6" fill="#1e1e22"/>
+    <rect x="283" y="86" width="2" height="6" fill="#1e1e22"/>
+
+    <!-- Now Indicator -->
+    <rect x="52" y="82" width="2" height="14" rx="1" fill="#ffffff"/>
+
+    <!-- Reset Dots -->
+    <!-- Gemini Dot (WED 7) -->
+    <circle cx="113" cy="89" r="5" fill="#1d8aad" stroke="#1e1e22" stroke-width="2"/>
+
+    <!-- Other Dot (MON 12) -->
+    <circle cx="303" cy="89" r="5" fill="#1d998a" stroke="#1e1e22" stroke-width="2"/>
+
+    <!-- Model Labels -->
+    <text x="113" y="117" class="model-label" fill="#1d8aad">Gemini</text>
+    <text x="303" y="117" class="model-label" fill="#1d998a">Other</text>
+  </g>
+</svg>

@@ -209,12 +209,20 @@ const ERROR_PATTERNS: Array<{ pattern: RegExp; tooltip: string }> = [
   { pattern: /not found.*installed|not found.*PATH/i, tooltip: 'A required system command was not found. Ensure your OS tools (PowerShell, ps, ss, lsof, or netstat) are installed and in your PATH.' }
 ];
 
-export function createErrorTooltip(error: Error): string {
+export function getConnectionErrorDetail(error: Error): string {
   const message = error.message;
   for (const { pattern, tooltip } of ERROR_PATTERNS) {
     if (pattern.test(message)) {
       return tooltip;
     }
   }
-  return `Connection failed: ${message}. Click to retry.`;
+  return message;
+}
+
+export function createErrorTooltip(error: Error): string {
+  const detail = getConnectionErrorDetail(error);
+  if (detail !== error.message) {
+    return detail;
+  }
+  return `Connection failed: ${detail}. Click to retry.`;
 }
