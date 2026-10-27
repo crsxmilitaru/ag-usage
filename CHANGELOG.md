@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.2.0] - 2026-10-27
+
+- Added Gemini 4 Argon weekly quota support across status bar, dashboard cards, and reset timeline
+- Improved dashboard rendering performance and quota detection reliability
+
 ## [2.1.0] - 2026-10-06
 
 - Added "Reset timeline" section to the dashboard panel for upcoming weekly quota resets

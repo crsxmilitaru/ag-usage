@@ -1,6 +1,6 @@
 {
   "name": "ag-usage",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "displayName": "AG Usage",
   "description": "Track usage of Antigravity AI models",
   "author": "Cristian Militaru",
@@ -111,13 +111,15 @@
             "average",
             "all",
             "gemini",
-            "other"
+            "other",
+            "argon"
           ],
           "enumDescriptions": [
             "Show the average usage across all groups",
-            "Show both groups side by side",
+            "Show all groups side by side",
             "Show only Gemini usage",
-            "Show only Other usage"
+            "Show only Other usage",
+            "Show only Argon usage"
           ],
           "description": "What to display in the status bar."
         },
@@ -291,22 +293,22 @@
     "vscode:prepublish": "npm run compile",
     "compile": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --minify --tree-shaking=true",
     "watch": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --sourcemap --watch",
-    "package": "npx @vscode/vsce package",
+    "package": "npx @vscode/vsce package --no-dependencies",
     "convert-svg": "node scripts/convert-svg.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "publish:ovsx": "npx ovsx publish",
-    "publish:vsce": "npx @vscode/vsce publish",
+    "publish:ovsx": "npx ovsx publish --no-dependencies",
+    "publish:vsce": "npx @vscode/vsce publish --no-dependencies",
     "publish": "npm run publish:ovsx && npm run publish:vsce"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@resvg/resvg-js": "^2.6.2",
-    "@types/node": "^26.2.0",
+    "@types/node": "^26.6.5",
     "@types/vscode": "^1.107.0",
     "esbuild": "^0.28.2",
-    "eslint": "^10.8.1",
+    "eslint": "^10.13.0",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.67.0"
+    "typescript-eslint": "^8.72.1"
   }
 }

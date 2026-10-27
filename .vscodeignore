@@ -2,6 +2,7 @@
 .vscode-test/**
 .git/**
 .github/**
+.gitattributes
 .gitignore
 .vscodeignore
 node_modules/**

@@ -47,6 +47,7 @@
 - **Detailed tooltip**: Hover over the status bar item to see a detailed breakdown and visual progress bars for model categories (as they are calculated by Antigravity):
   - **Gemini** - Gemini Pro and Gemini Flash models
   - **Other** - Claude and GPT models
+  - **Argon** - Gemini 4 Argon weekly limit (Pro)
 
   <p align="center">
     <img src="https://raw.githubusercontent.com/crsxmilitaru/ag-usage/main/assets/tooltip.png" alt="AG Usage Tooltip Preview" width="520">
@@ -75,9 +76,10 @@
 
 - `ag-usage.statusBarDisplay`: Control what information is shown in the status bar. Options:
   - `average` - Shows the average usage across all groups
-  - `all` (default) - Shows both groups side by side (e.g., `Gemini: 80% | Other: 50%`)
+  - `all` (default) - Shows all available groups side by side
   - `gemini` - Shows only Gemini usage
   - `other` - Shows only Other usage
+  - `argon` - Shows only the Gemini 4 Argon weekly limit (Pro)
 
 - `ag-usage.statusBarLimitDisplay`: Control how to display the quota limits in the status bar. Options:
   - `only5h` - Shows only the 5-hour quota (e.g., `Gemini 77%`)

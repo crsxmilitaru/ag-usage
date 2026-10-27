@@ -42,11 +42,20 @@ async function loadMockUsageStatistics(): Promise<UsageStatistics> {
 	const now = Date.now();
 	const groups: Record<string, QuotaGroup> = {};
 	for (const [name, data] of Object.entries(testData.usageStatistics.groups)) {
-		const entry = data as { quota: number; resetTimeOffsetMs?: number; models?: string[] };
+		const entry = data as {
+			quota: number;
+			resetTimeOffsetMs?: number;
+			models?: string[];
+			buckets?: Array<{ window: string; displayName: string; quota: number; resetTimeOffsetMs?: number }>;
+		};
 		groups[name] = {
 			quota: entry.quota,
 			resetTime: entry.resetTimeOffsetMs ? now + entry.resetTimeOffsetMs : null,
-			models: entry.models
+			models: entry.models,
+			buckets: entry.buckets?.map(({ resetTimeOffsetMs, ...bucket }) => ({
+				...bucket,
+				resetTime: resetTimeOffsetMs ? now + resetTimeOffsetMs : null
+			}))
 		};
 	}
 	return { groups, plan: testData.usageStatistics.plan, planName: testData.usageStatistics.planName, credits: testData.usageStatistics.credits };

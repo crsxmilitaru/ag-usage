@@ -1,5 +1,5 @@
 import { spawn } from 'child_process';
-import { CATEGORY_ORDER, MAX_PID_32BIT_SIGNED, MAX_PORT, MIN_PORT, MS_PER_DAY, MS_PER_HOUR, MS_PER_MINUTE, PANEL_SECTION_IDS, PanelSectionId, PROGRESS_BUCKET_BOUNDARIES, PROGRESS_STOPS, SERVER_STARTUP_TOLERANCE_MINUTES } from './constants';
+import { CATEGORY_NAMES, MAX_PID_32BIT_SIGNED, MAX_PORT, MIN_PORT, MS_PER_DAY, MS_PER_HOUR, MS_PER_MINUTE, PANEL_SECTION_IDS, PanelSectionId, PROGRESS_BUCKET_BOUNDARIES, PROGRESS_STOPS, SERVER_STARTUP_TOLERANCE_MINUTES } from './constants';
 import { QuotaBucket, QuotaGroup } from './types';
 
 export const MAX_BUFFER_SIZE = 1024 * 1024;
@@ -97,7 +97,7 @@ export function isWeeklyLimitReached(percentage: number, resetMs: number, plan: 
 
 export function isLikelyServerGlitch(groups: Record<string, QuotaGroup>): boolean {
   const now = Date.now();
-  return CATEGORY_ORDER.every(category => {
+  return [CATEGORY_NAMES.GEMINI, CATEGORY_NAMES.OTHER].every(category => {
     const group = groups[category];
     return group !== undefined &&
       group.quota === 0 &&

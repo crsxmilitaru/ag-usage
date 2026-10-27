@@ -429,6 +429,9 @@ async function makeProtocolRequest<T>(port: number, csrfToken: string, path: str
 
 function determineCategory(label: string): string {
   const lowerLabel = label.toLowerCase();
+  if (lowerLabel.includes(MODEL_KEYWORDS.argon)) {
+    return CATEGORY_NAMES.ARGON;
+  }
   if (lowerLabel.includes(MODEL_KEYWORDS.gemini) || lowerLabel.includes(MODEL_KEYWORDS.flash)) {
     return CATEGORY_NAMES.GEMINI;
   }
@@ -470,6 +473,18 @@ function normalizeBucketDisplayName(window: string | undefined, displayName: str
   return displayName || window || 'Limit';
 }
 
+function normalizeBucketWindow(window: string | undefined, bucketId: string | undefined, displayName: string | undefined): string {
+  const candidates = [window, bucketId, displayName].filter((value): value is string => typeof value === 'string');
+  const normalizedCandidates = candidates.map(value => value.toLowerCase());
+  if (normalizedCandidates.some(value => value.includes('week'))) {
+    return 'weekly';
+  }
+  if (normalizedCandidates.some(value => value.includes('5h') || /five[\s_-]*hour/.test(value))) {
+    return '5h';
+  }
+  return window ?? bucketId ?? displayName ?? 'unknown';
+}
+
 function parseQuotaSummary(response: ServerQuotaSummaryResponse): Record<string, QuotaGroup> {
   const groups: Record<string, QuotaGroup> = {};
 
@@ -483,9 +498,10 @@ function parseQuotaSummary(response: ServerQuotaSummaryResponse): Record<string,
       if (quota === null) {
         continue;
       }
+      const window = normalizeBucketWindow(rawBucket.window, rawBucket.bucketId, rawBucket.displayName);
       buckets.push({
-        window: rawBucket.window ?? rawBucket.bucketId ?? rawBucket.displayName ?? 'unknown',
-        displayName: normalizeBucketDisplayName(rawBucket.window, rawBucket.displayName),
+        window,
+        displayName: normalizeBucketDisplayName(window, rawBucket.displayName),
         quota,
         resetTime: parseResetTime(rawBucket.resetTime)
       });
@@ -499,7 +515,7 @@ function parseQuotaSummary(response: ServerQuotaSummaryResponse): Record<string,
 
     const effectiveBucket = sortedBuckets.reduce((lowest, bucket) => bucket.quota < lowest.quota ? bucket : lowest, sortedBuckets[0]);
     const group = groups[category] ??= { quota: 1, resetTime: null, buckets: [] };
-    group.buckets = [...(group.buckets ?? []), ...sortedBuckets];
+    group.buckets = sortQuotaBuckets([...(group.buckets ?? []), ...sortedBuckets]);
 
     if (effectiveBucket.quota < group.quota) {
       group.quota = effectiveBucket.quota;
@@ -508,6 +524,48 @@ function parseQuotaSummary(response: ServerQuotaSummaryResponse): Record<string,
   }
 
   return groups;
+}
+
+function addArgonWeeklyFallback(groups: Record<string, QuotaGroup>, models: ModelConfig[]): void {
+  const argonQuotas = models
+    .filter(model => determineCategory(model.label ?? '') === CATEGORY_NAMES.ARGON)
+    .map(model => ({
+      quota: parseQuotaFraction(model.quotaInfo?.remainingFraction),
+      resetTime: parseResetTime(model.quotaInfo?.resetTime)
+    }))
+    .filter((model): model is { quota: number; resetTime: number | null } => model.quota !== null);
+
+  if (argonQuotas.length === 0) {
+    return;
+  }
+
+  const fallback = argonQuotas.reduce((lowest, model) =>
+    model.quota < lowest.quota || (model.quota === lowest.quota && model.resetTime !== null && (lowest.resetTime === null || model.resetTime < lowest.resetTime))
+      ? model
+      : lowest,
+    argonQuotas[0]
+  );
+  const group = groups[CATEGORY_NAMES.ARGON] ??= {
+    quota: fallback.quota,
+    resetTime: fallback.resetTime,
+    buckets: []
+  };
+
+  if (group.buckets?.some(bucket => bucket.window.toLowerCase() === 'weekly')) {
+    return;
+  }
+
+  const weeklyBucket: QuotaBucket = {
+    window: 'weekly',
+    displayName: 'Weekly Limit',
+    quota: fallback.quota,
+    resetTime: fallback.resetTime
+  };
+  group.buckets = sortQuotaBuckets([...(group.buckets ?? []), weeklyBucket]);
+  if (fallback.quota < group.quota || (fallback.quota === group.quota && group.resetTime === null)) {
+    group.quota = fallback.quota;
+    group.resetTime = fallback.resetTime;
+  }
 }
 
 async function requestQuotaSummary(port: number, csrfToken: string): Promise<ServerQuotaSummaryResponse> {
@@ -574,6 +632,8 @@ export async function fetchStats(port: number, csrfToken: string): Promise<Usage
       }
     }
   }
+
+  addArgonWeeklyFallback(groups, models);
 
   for (const model of models) {
     const { label } = model;

@@ -89,29 +89,34 @@ export const THEME_COLORS = {
 export const MODELS_COLORS = {
   light: {
     gemini: '#0d6e96',
-    other: '#0d9488'
+    other: '#0d9488',
+    argon: '#2d4ea3'
   },
   dark: {
     gemini: '#1d8aad',
-    other: '#1d998a'
+    other: '#1d998a',
+    argon: '#4b6bcb'
   }
 } as const;
 
 export const CATEGORY_NAMES = {
   GEMINI: 'Gemini',
-  OTHER: 'Other'
+  OTHER: 'Other',
+  ARGON: 'Argon'
 } as const;
 
-export const CATEGORY_ORDER = [CATEGORY_NAMES.GEMINI, CATEGORY_NAMES.OTHER];
+export const CATEGORY_ORDER = [CATEGORY_NAMES.GEMINI, CATEGORY_NAMES.OTHER, CATEGORY_NAMES.ARGON];
 
 export const DISPLAY_MODE_TO_CATEGORY: Record<string, string> = {
   gemini: CATEGORY_NAMES.GEMINI,
-  other: CATEGORY_NAMES.OTHER
+  other: CATEGORY_NAMES.OTHER,
+  argon: CATEGORY_NAMES.ARGON
 };
 
 export const MODEL_KEYWORDS = {
   flash: 'flash',
-  gemini: 'gemini'
+  gemini: 'gemini',
+  argon: 'argon'
 };
 
 export const BUCKET_OPACITY = {

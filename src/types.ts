@@ -58,7 +58,7 @@ export interface ProcessInfo {
   cmd: string;
 }
 
-export type StatusBarDisplayMode = 'average' | 'all' | 'gemini' | 'other';
+export type StatusBarDisplayMode = 'average' | 'all' | 'gemini' | 'other' | 'argon';
 
 export type StatusBarLimitDisplayMode = 'only5h' | 'both';
 

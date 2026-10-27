@@ -179,8 +179,10 @@ export function formatStatusBarText(
   if (displayMode !== 'average') {
     const category = DISPLAY_MODE_TO_CATEGORY[displayMode];
     if (category && groups[category]) {
-      const group = groups[category];
-      return `$(rocket) ${formatGroup(category, group)}`;
+      return `$(rocket) ${formatGroup(category, groups[category])}`;
+    }
+    if (category) {
+      return `$(rocket) ${category} —`;
     }
   }
 

@@ -580,8 +580,13 @@ function buildProgressVars(palette: string[]): string {
 	return PROGRESS_STOPS.map((stop, i) => `\t--progress-${stop}: ${palette[i]};`).join('\n');
 }
 
+let cachedPanelStyles: string | null = null;
+
 function getPanelStyles(): string {
-	return `
+	if (cachedPanelStyles !== null) {
+		return cachedPanelStyles;
+	}
+	cachedPanelStyles = `
 :root {
 	--panel-bg: var(--vscode-sideBar-background);
 	--card-bg: var(--vscode-editor-background);
@@ -596,6 +601,7 @@ function getPanelStyles(): string {
 	--error: ${THEME_COLORS.dark.error};
 	--models-gemini: ${MODELS_COLORS.dark.gemini};
 	--models-other: ${MODELS_COLORS.dark.other};
+	--models-argon: ${MODELS_COLORS.dark.argon};
 	--metric-row-bg: color-mix(in srgb, #000 ${BUCKET_OPACITY.defaultBg * 100}%, var(--card-bg));
 	--metric-row-border: color-mix(in srgb, var(--card-border) ${BUCKET_OPACITY.defaultBorder * 100}%, transparent);
 ${buildProgressVars(THEME_COLORS.dark.progress)}
@@ -608,6 +614,7 @@ ${buildProgressVars(THEME_COLORS.light.progress)}
 	--error: ${THEME_COLORS.light.error};
 	--models-gemini: ${MODELS_COLORS.light.gemini};
 	--models-other: ${MODELS_COLORS.light.other};
+	--models-argon: ${MODELS_COLORS.light.argon};
 }
 
 html { container-type: inline-size; container-name: panel; height: 100%; }
@@ -1618,6 +1625,9 @@ body {
 .model-usage-bar-fill--other {
 	background: var(--models-other);
 }
+.model-usage-bar-fill--argon {
+	background: var(--models-argon);
+}
 .model-usage-extra-rows {
 	display: flex;
 	flex-direction: column;
@@ -2038,7 +2048,8 @@ body {
 		display: none;
 	}
 }
-`;
+`.replace(/\s+/g, ' ').replace(/\s*([{};,])\s*/g, '$1').trim();
+	return cachedPanelStyles;
 }
 
 function buildTopRow(statsData: UsageStatistics | null): string {
@@ -2336,6 +2347,7 @@ function resetCalendarTimePosition(time: number, dayStarts: number[]): number {
 function getResetCalendarCategoryColor(category: string): string {
 	if (category === CATEGORY_NAMES.GEMINI) { return 'var(--models-gemini)'; }
 	if (category === CATEGORY_NAMES.OTHER) { return 'var(--models-other)'; }
+	if (category === CATEGORY_NAMES.ARGON) { return 'var(--models-argon)'; }
 	return 'var(--text-secondary)';
 }
 
@@ -2690,6 +2702,9 @@ function buildHeatmapSection(dailyUsage: ReadonlyArray<DailyUsageEntry>, targetM
 
 function getModelUsageBarFillClass(entry: ModelUsageEntry): string {
 	const model = entry.model.toLowerCase();
+	if (model.includes(MODEL_KEYWORDS.argon)) {
+		return 'model-usage-bar-fill--argon';
+	}
 	if (model.includes(MODEL_KEYWORDS.gemini) || model.includes(MODEL_KEYWORDS.flash)) {
 		return 'model-usage-bar-fill--gemini';
 	}
@@ -2801,10 +2816,6 @@ function buildPanelSectionContent(id: PanelSectionId, ctx: PanelBuildContext): s
 	}
 }
 
-function panelSectionHasContent(id: PanelSectionId, ctx: PanelBuildContext): boolean {
-	return buildPanelSectionContent(id, ctx).length > 0;
-}
-
 function buildPanelSectionToolbar(id: PanelSectionId, isFirst: boolean, isLast: boolean, hidden: boolean): string {
 	const sectionId = escapeHtml(id);
 	const label = escapeHtml(PANEL_SECTION_LABELS[id]);
@@ -2837,13 +2848,17 @@ function buildPanelSectionToolbar(id: PanelSectionId, isFirst: boolean, isLast: 
 }
 
 function buildOrderedPanelBody(ctx: PanelBuildContext, layout: PanelSectionSlot[], layoutEditing: boolean): string {
-	const rendered = layout.filter(slot => {
-		if (slot.hidden && !layoutEditing) { return false; }
-		if (panelSectionHasContent(slot.id, ctx)) { return true; }
-		return layoutEditing && slot.hidden;
-	});
-	return rendered.map((slot, index) => {
+	const rendered: Array<{ slot: PanelSectionSlot; html: string }> = [];
+	for (const slot of layout) {
+		if (slot.hidden && !layoutEditing) {
+			continue;
+		}
 		const html = buildPanelSectionContent(slot.id, ctx);
+		if (html.length > 0 || (layoutEditing && slot.hidden)) {
+			rendered.push({ slot, html });
+		}
+	}
+	return rendered.map(({ slot, html }, index) => {
 		const toolbar = layoutEditing
 			? buildPanelSectionToolbar(slot.id, index === 0, index === rendered.length - 1, slot.hidden)
 			: '';
