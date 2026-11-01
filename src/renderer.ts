@@ -102,6 +102,44 @@ function buildProgressBarSvg(
 	return elements.join('\n\t\t');
 }
 
+function buildNotApplicableBucketSvg(options: {
+	cardX: number;
+	cardW: number;
+	contentX: number;
+	contentXEnd: number;
+	contentW: number;
+	colors: ThemeColors;
+	index?: number;
+}): string {
+	const { cardX, cardW, contentX, contentXEnd, contentW, colors, index = 0 } = options;
+	const { bucketRowHeight, bucketRowGap, barRadius } = CARD_METRICS;
+	const { textStyleEnd } = LAYOUT;
+	const boxX = cardX + 6;
+	const boxW = cardW - 12;
+	const boxY = 32 + index * (bucketRowHeight + bucketRowGap);
+
+	const labelY = boxY + 13;
+	const percentY = boxY + 28;
+	const barY = boxY + 39;
+	const barHeight = 5;
+
+	const itemInset = 4;
+	const itemX = contentX + itemInset;
+	const itemXEnd = contentXEnd - itemInset;
+	const itemW = contentW - (itemInset * 2);
+
+	const fillOpacity = BUCKET_OPACITY.defaultBg;
+	const strokeOpacity = BUCKET_OPACITY.defaultBorder;
+
+	return `
+		<g opacity="0.4">
+			<rect x="${boxX}" y="${boxY}" rx="6" width="${boxW}" height="${bucketRowHeight}" fill="${colors.text}" fill-opacity="${fillOpacity}" stroke="${colors.cardBorder}" stroke-opacity="${strokeOpacity}" stroke-width="1"/>
+			<text x="${itemXEnd}" y="${labelY}" fill="${colors.text}" fill-opacity="${OPACITY.medium}" ${textStyleEnd} font-size="11" font-weight="650">5h</text>
+			<text x="${itemXEnd}" y="${percentY}" fill="${colors.text}" fill-opacity="${OPACITY.medium}" ${textStyleEnd} font-size="11" font-weight="600">Not applicable</text>
+			<rect x="${itemX.toFixed(1)}" y="${barY.toFixed(1)}" rx="${barRadius}" width="${itemW.toFixed(1)}" height="${barHeight}" fill="${colors.barBackground}"/>
+		</g>`;
+}
+
 function isValidUsageStatistics(data: unknown): data is UsageStatistics {
 	if (!data || typeof data !== 'object') { return false; }
 	const d = data as Record<string, unknown>;
@@ -136,8 +174,22 @@ function buildCategorySvg(options: CategorySvgOptions): string {
 		const sortedBuckets = sortQuotaBuckets(group.buckets);
 		const weeklyBucket = sortedBuckets.find(b => b.window.toLowerCase() === 'weekly');
 		const isWeeklyDepleted = weeklyBucket !== undefined && formatQuotaPercent(weeklyBucket.quota) === 0;
+		const has5hBucket = sortedBuckets.some(b => b.window.toLowerCase() === '5h');
 
-		sortedBuckets.slice(0, 2).forEach((bucket, index) => {
+		if (!has5hBucket) {
+			svg += buildNotApplicableBucketSvg({
+				cardX,
+				cardW,
+				contentX,
+				contentXEnd,
+				contentW,
+				colors,
+				index: 0
+			});
+		}
+
+		sortedBuckets.slice(0, !has5hBucket ? 1 : 2).forEach((bucket, index) => {
+			const rowIndex = !has5hBucket ? index + 1 : index;
 			const bucketPercentage = formatQuotaPercent(bucket.quota);
 			const bucketColor = getBarColor(bucketPercentage, colors);
 			const isWeekly = bucket.window.toLowerCase() === 'weekly';
@@ -146,7 +198,7 @@ function buildCategorySvg(options: CategorySvgOptions): string {
 			const { bucketRowHeight, bucketRowGap } = CARD_METRICS;
 			const boxX = cardX + 6;
 			const boxW = cardW - 12;
-			const boxY = 32 + index * (bucketRowHeight + bucketRowGap);
+			const boxY = 32 + rowIndex * (bucketRowHeight + bucketRowGap);
 
 			const labelY = boxY + 13;
 			const percentY = boxY + 28;

@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
-import { CONFIG_NAMESPACE, DISPLAY_MODE_TO_CATEGORY, MAX_STATUS_TEXT_LENGTH, MS_PER_DAY, MS_PER_HOUR, MS_PER_MINUTE } from './constants';
-import { AbsoluteTimeFormat, QuotaGroup, ResetTimeDisplayMode, StatusBarDisplayMode, StatusBarLimitDisplayMode } from './types';
+import { CONFIG_NAMESPACE, DISPLAY_MODE_TO_CATEGORY, MS_PER_DAY, MS_PER_HOUR, MS_PER_MINUTE } from './constants';
+import { AbsoluteTimeFormat, QuotaGroup, ResetTimeDisplayMode, StatusBarDisplayItem, StatusBarDisplayMode, StatusBarLimitDisplayMode } from './types';
 
 export function formatQuotaPercent(fraction: number): number {
   return Math.round(Math.max(0, Math.min(1, fraction)) * 100);
@@ -93,14 +93,14 @@ function getCountdownSuffix(groups: Record<string, QuotaGroup>, categories: stri
     return '';
   }
 
-  if (!categories.some(cat => groups[cat].quota <= 0)) {
+  if (!categories.some(cat => formatQuotaPercent(groups[cat].quota) === 0)) {
     return '';
   }
 
   let earliestResetTime: number | null = null;
   for (const cat of categories) {
     const group = groups[cat];
-    if (group.quota <= 0 && typeof group.resetTime === 'number') {
+    if (formatQuotaPercent(group.quota) === 0 && typeof group.resetTime === 'number') {
       if (earliestResetTime === null || group.resetTime < earliestResetTime) {
         earliestResetTime = group.resetTime;
       }
@@ -125,13 +125,50 @@ function formatBucketCountdown(resetTime: number): string {
   return `~${formatRelativeTime(diffMs)}`;
 }
 
+function formatWeeklyQuota(weekly: NonNullable<QuotaGroup['buckets']>[number], showWeeklyReset: boolean): string {
+  const percent = `${formatQuotaPercent(weekly.quota)}%`;
+  if (!showWeeklyReset || typeof weekly.resetTime !== 'number' || !Number.isFinite(weekly.resetTime) || weekly.resetTime <= 0) {
+    return percent;
+  }
+  const diffMs = Math.max(0, weekly.resetTime - Date.now());
+  return `${percent} ${formatRelativeTime(diffMs)}`;
+}
+
+function normalizeStatusBarItems(rawDisplay: unknown): StatusBarDisplayItem[] {
+  const rawItems = Array.isArray(rawDisplay)
+    ? rawDisplay
+    : typeof rawDisplay === 'string'
+      ? rawDisplay.split(',')
+      : ['gemini', 'other', 'argon'];
+
+  const items: StatusBarDisplayItem[] = [];
+  for (const rawItem of rawItems) {
+    if (typeof rawItem !== 'string') { continue; }
+    const normalized = rawItem.trim().toLowerCase();
+    if (normalized === 'all') {
+      for (const item of ['gemini', 'other', 'argon'] as const) {
+        if (!items.includes(item)) {
+          items.push(item);
+        }
+      }
+      continue;
+    }
+    if ((normalized === 'gemini' || normalized === 'other' || normalized === 'argon' || normalized === 'average') && !items.includes(normalized)) {
+      items.push(normalized);
+    }
+  }
+  return items;
+}
+
 export function formatStatusBarText(
   groups: Record<string, QuotaGroup>,
   categories: string[]
 ): string {
   const config = vscode.workspace.getConfiguration(CONFIG_NAMESPACE);
-  const displayMode = config.get<StatusBarDisplayMode>('statusBarDisplay', 'all');
+  const rawDisplay = config.get<StatusBarDisplayItem[] | StatusBarDisplayMode>('statusBarDisplay', ['gemini', 'other', 'argon']);
+  const displayItems = normalizeStatusBarItems(rawDisplay);
   const showCountdown = config.get<boolean>('statusBarCountdown', true);
+  const showWeeklyReset = config.get<boolean>('statusBarWeeklyReset', false);
   const countdownSuffix = getCountdownSuffix(groups, categories, showCountdown);
 
   const formatGroup = (name: string, group: QuotaGroup) => {
@@ -139,27 +176,56 @@ export function formatStatusBarText(
     const weekly = getQuotaBucket(group, 'weekly');
     const fiveHour = getQuotaBucket(group, '5h');
     if (weekly || fiveHour) {
-      if (showCountdown && weekly && weekly.quota <= 0 && typeof weekly.resetTime === 'number') {
-        return `${name} ${formatBucketCountdown(weekly.resetTime)}`;
+      const weeklyResetTime = weekly?.resetTime ?? group.resetTime;
+      const fiveHourResetTime = fiveHour?.resetTime ?? group.resetTime;
+      const isWeeklyDepleted = weekly !== undefined && formatQuotaPercent(weekly.quota) === 0;
+      const isFiveHourDepleted = fiveHour !== undefined && formatQuotaPercent(fiveHour.quota) === 0;
+
+      if (limitDisplay === 'weekly') {
+        if (!weekly) {
+          return null;
+        }
+        if (showCountdown && isWeeklyDepleted && typeof weeklyResetTime === 'number') {
+          return `${name} ${formatBucketCountdown(weeklyResetTime)}`;
+        }
+        return `${name} ${formatWeeklyQuota(weekly, showWeeklyReset)}`;
       }
-      if (showCountdown && fiveHour && fiveHour.quota <= 0 && typeof fiveHour.resetTime === 'number') {
-        const weeklySuffix = limitDisplay === 'both' && weekly
-          ? ` (${formatQuotaPercent(weekly.quota)}%)`
+
+      if (limitDisplay === '5h' || limitDisplay === 'only5h') {
+        if (!fiveHour) {
+          return null;
+        }
+        if (showCountdown && isWeeklyDepleted && typeof weeklyResetTime === 'number') {
+          return `${name} ${formatBucketCountdown(weeklyResetTime)}`;
+        }
+        if (showCountdown && isFiveHourDepleted && typeof fiveHourResetTime === 'number') {
+          return `${name} ${formatBucketCountdown(fiveHourResetTime)}`;
+        }
+        return `${name} ${formatQuotaPercent(fiveHour.quota)}%`;
+      }
+
+      if (showCountdown && isWeeklyDepleted && typeof weeklyResetTime === 'number') {
+        const countdownText = formatBucketCountdown(weeklyResetTime);
+        return !fiveHour ? `${name} (${countdownText})` : `${name} ${countdownText}`;
+      }
+      if (showCountdown && isFiveHourDepleted && typeof fiveHourResetTime === 'number') {
+        const weeklySuffix = weekly
+          ? ` (${formatWeeklyQuota(weekly, showWeeklyReset)})`
           : '';
-        return `${name} ${formatBucketCountdown(fiveHour.resetTime)}${weeklySuffix}`;
+        return `${name} ${formatBucketCountdown(fiveHourResetTime)}${weeklySuffix}`;
       }
-      if (limitDisplay === 'both' && weekly && fiveHour) {
-        return `${name} ${formatQuotaPercent(fiveHour.quota)}% (${formatQuotaPercent(weekly.quota)}%)`;
+      if (weekly && fiveHour) {
+        return `${name} ${formatQuotaPercent(fiveHour.quota)}% (${formatWeeklyQuota(weekly, showWeeklyReset)})`;
       }
       if (fiveHour) {
         return `${name} ${formatQuotaPercent(fiveHour.quota)}%`;
       }
       if (weekly) {
-        return `${name} ${formatQuotaPercent(weekly.quota)}%`;
+        return `${name} (${formatWeeklyQuota(weekly, showWeeklyReset)})`;
       }
     }
 
-    if (showCountdown && group.quota <= 0 && typeof group.resetTime === 'number') {
+    if (showCountdown && formatQuotaPercent(group.quota) === 0 && typeof group.resetTime === 'number') {
       const diffMs = Math.max(0, group.resetTime - Date.now());
       const shortTime = formatRelativeTime(diffMs);
       return `${name} ~${shortTime}`;
@@ -167,48 +233,68 @@ export function formatStatusBarText(
     return `${name} ${formatQuotaPercent(group.quota)}%`;
   };
 
-  if (displayMode === 'all') {
-    const parts = categories.map(cat => formatGroup(cat, groups[cat]));
-    const text = parts.join('   ');
-    const truncated = text.length > MAX_STATUS_TEXT_LENGTH
-      ? [...text].slice(0, MAX_STATUS_TEXT_LENGTH - 1).join('') + '…'
-      : text;
-    return `$(rocket) ${truncated}`;
-  }
+  const formatStatusBarParts = (parts: string[]): string => {
+    return `$(rocket) ${parts.join('   ')}`;
+  };
 
-  if (displayMode !== 'average') {
-    const category = DISPLAY_MODE_TO_CATEGORY[displayMode];
-    if (category && groups[category]) {
-      return `$(rocket) ${formatGroup(category, groups[category])}`;
+  const formatAverageValue = (withLabel: boolean): string => {
+    if (categories.length === 0) {
+      return withLabel ? 'Average 0%' : '0%';
     }
-    if (category) {
-      return `$(rocket) ${category} —`;
+    const totalQuota = categories.reduce((sum, cat) => sum + groups[cat].quota, 0);
+    const percentage = Math.round((totalQuota / categories.length) * 100);
+    if (percentage === 0 && countdownSuffix) {
+      return withLabel ? `Average${countdownSuffix}` : countdownSuffix.trimStart();
+    }
+    return withLabel ? `Average ${percentage}%` : `${percentage}%`;
+  };
+
+  if (displayItems.length === 0) {
+    return '$(rocket)';
+  }
+
+  if (displayItems.length === 1 && displayItems[0] === 'average') {
+    return `$(rocket) ${formatAverageValue(false)}`;
+  }
+
+  const parts: string[] = [];
+  for (const item of displayItems) {
+    if (item === 'average') {
+      parts.push(formatAverageValue(true));
+      continue;
+    }
+    const category = DISPLAY_MODE_TO_CATEGORY[item];
+    if (!category) { continue; }
+    if (groups[category]) {
+      const formatted = formatGroup(category, groups[category]);
+      if (formatted !== null) {
+        parts.push(formatted);
+      }
+    } else if (displayItems.length === 1) {
+      parts.push(`${category} —`);
     }
   }
 
-  if (categories.length === 0) {
-    return '$(rocket) 0%';
+  if (parts.length === 0) {
+    if (categories.length === 0) {
+      return '$(rocket) 0%';
+    }
+    return formatStatusBarParts(
+      displayItems.map(item => `${DISPLAY_MODE_TO_CATEGORY[item] ?? item} —`)
+    );
   }
 
-  const totalQuota = categories.reduce((sum, cat) => sum + groups[cat].quota, 0);
-  const averageQuota = totalQuota / categories.length;
-  const percentage = Math.round(averageQuota * 100);
-
-  if (percentage === 0 && countdownSuffix) {
-    return `$(rocket)${countdownSuffix}`;
-  }
-
-  return `$(rocket) ${percentage}%`;
+  return formatStatusBarParts(parts);
 }
 
 const ERROR_PATTERNS: Array<{ pattern: RegExp; tooltip: string }> = [
+  { pattern: /not found.*installed|not found.*PATH/i, tooltip: 'A required system command was not found. Ensure your OS tools (PowerShell, ps, ss, lsof, or netstat) are installed and in your PATH.' },
   { pattern: /process not found|not found.*process/i, tooltip: 'Antigravity process not found. Make sure Antigravity is running.' },
   { pattern: /csrf[_\s]?token/i, tooltip: 'Could not extract CSRF token from process. The process may have started incorrectly.' },
   { pattern: /no listening ports|ports? (not )?found/i, tooltip: 'No listening ports found for the Antigravity process.' },
   { pattern: /timed? ?out|timeout/i, tooltip: 'Connection timed out. The server may not be responding.' },
   { pattern: /econnrefused|connection refused/i, tooltip: 'Connection refused. The server may not be running.' },
-  { pattern: /enotfound|dns/i, tooltip: 'Could not resolve host. Check your network connection.' },
-  { pattern: /not found.*installed|not found.*PATH/i, tooltip: 'A required system command was not found. Ensure your OS tools (PowerShell, ps, ss, lsof, or netstat) are installed and in your PATH.' }
+  { pattern: /enotfound|dns/i, tooltip: 'Could not resolve host. Check your network connection.' }
 ];
 
 export function getConnectionErrorDetail(error: Error): string {

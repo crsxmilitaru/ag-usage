@@ -27,7 +27,6 @@ export const MIN_PORT = 1;
 export const MAX_PORT = 65535;
 export const FAILED_REFRESH_DELAY_MS = 5000;
 export const MAX_FAILED_REFRESH_DELAY_MS = 60000;
-export const MAX_STATUS_TEXT_LENGTH = 120;
 export const MAX_PORT_VALIDATION_ATTEMPTS = 2;
 export const HEATMAP_MAX_DAYS = 180;
 export const MODEL_USAGE_COLLAPSED_ROWS = 3;
@@ -47,6 +46,7 @@ export const PROCESS_IDENTIFIERS = {
   ANTIGRAVITY: 'antigravity',
   CSRF_TOKEN: '--csrf_token',
   HUB_PORT: '--hub-port',
+  HUB_PORT_UNDERSCORE: '--hub_port',
   GEMINI_DIR: '.gemini'
 };
 
@@ -110,7 +110,8 @@ export const CATEGORY_ORDER = [CATEGORY_NAMES.GEMINI, CATEGORY_NAMES.OTHER, CATE
 export const DISPLAY_MODE_TO_CATEGORY: Record<string, string> = {
   gemini: CATEGORY_NAMES.GEMINI,
   other: CATEGORY_NAMES.OTHER,
-  argon: CATEGORY_NAMES.ARGON
+  argon: CATEGORY_NAMES.ARGON,
+  average: 'Average'
 };
 
 export const MODEL_KEYWORDS = {

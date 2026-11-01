@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.3.0] - 2026-11-01
+
+- Added `ag-usage.statusBarWeeklyReset` option to show time remaining until weekly reset next to the weekly quota percentage in the status bar
+- Renamed `ag-usage.statusBarLimitDisplay` option `only5h` to `5h` and added `weekly` display option
+- Changed `ag-usage.statusBarDisplay` into a customizable list of items (`gemini`, `other`, `argon`, `average`)
+- Fixed "No listening ports found" connection failures and improved port discovery across Windows, macOS, and Linux
+- Fixed status bar reset countdown not showing when weekly quota reaches 0% but 5-hour quota has remaining percentage
+- Aligned quota rows in the status bar tooltip by displaying a "Not applicable" 5-hour placeholder for weekly-only models
+
 ## [2.2.0] - 2026-10-27
 
 - Added Gemini 4 Argon weekly quota support across status bar, dashboard cards, and reset timeline

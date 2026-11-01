@@ -429,7 +429,6 @@ function buildCardHeaderHtml(category: string, group: QuotaGroup | undefined, lo
 		const orderedBuckets = sortQuotaBuckets(group.buckets);
 		const weeklyBucket = orderedBuckets.find(b => b.window.toLowerCase() === 'weekly');
 		const isWeeklyDepleted = weeklyBucket !== undefined && formatQuotaPercent(weeklyBucket.quota) === 0;
-
 		const bucketRows = orderedBuckets.map(bucket => {
 			const bucketPct = formatQuotaPercent(bucket.quota);
 			const bucketColorClass = getBarColorClass(bucket.quota);
@@ -1507,6 +1506,13 @@ body {
 	gap: 2px;
 	min-width: 0;
 }
+.reset-calendar-label-cell-row {
+	flex-direction: row;
+	flex-wrap: wrap;
+	justify-content: flex-start;
+	align-content: flex-start;
+	gap: 2px 6px;
+}
 .reset-calendar-label {
 	font-size: 10px;
 	font-weight: 600;
@@ -2013,16 +2019,16 @@ body {
 		min-height: clamp(38px, 12.5cqw, 50px);
 	}
 	.quota-value {
-		font-size: clamp(13px, 5cqw, 20px);
+		font-size: clamp(14px, 5cqw, 20px);
 	}
 	.bucket-value {
-		font-size: clamp(12px, 4.5cqw, 18px);
+		font-size: clamp(13px, 4.5cqw, 18px);
 	}
 	.quota-label, .heatmap-title, .public-health-title, .model-usage-title, .model-usage-name, .reset-calendar-title {
-		font-size: clamp(9px, 3cqw, 12px);
+		font-size: clamp(10px, 3cqw, 12px);
 	}
 	.bucket-label, .bucket-reset-time, .reset-label, .reset-value {
-		font-size: clamp(8px, 2.75cqw, 11px);
+		font-size: clamp(9px, 2.75cqw, 11px);
 	}
 	.heatmap-section, .public-health-section, .model-usage-section, .reset-calendar-section {
 		padding: clamp(8px, 3.5cqw, 14px);
@@ -2034,7 +2040,7 @@ body {
 		font-size: 8px;
 	}
 	.heatmap-cell-num {
-		font-size: clamp(8px, 2.6cqw, 10px);
+		font-size: clamp(9px, 2.6cqw, 10px);
 	}
 }
 @container panel (max-width: 220px) {
@@ -2509,8 +2515,29 @@ function buildResetCalendarSection(statsData: UsageStatistics | null, locale?: s
 				</div>`;
 	}).join('');
 
-	const labelsHtml = eventsByDay.map(dayEvents => {
-		const labels = dayEvents.map(event => {
+	const labelCells: Array<{ events: ResetCalendarEvent[]; span: number }> = [];
+	for (let d = 0; d < dayCount; d++) {
+		const cellEvents = [...eventsByDay[d]];
+		let span = 1;
+		while (cellEvents.length > span) {
+			const hasEmptyRight = eventsByDay.slice(d + span).some(dayEvents => dayEvents.length === 0);
+			if (!hasEmptyRight) {
+				break;
+			}
+			cellEvents.push(...eventsByDay[d + span]);
+			span++;
+		}
+		if (span > 1) {
+			while (d + span < dayCount && eventsByDay[d + span].length === 0) {
+				span++;
+			}
+		}
+		labelCells.push({ events: cellEvents, span });
+		d += span - 1;
+	}
+
+	const labelsHtml = labelCells.map(({ events: cellEvents, span }) => {
+		const labels = cellEvents.map(event => {
 			const timeStr = whenFormat.format(new Date(event.resetTime));
 			const relStr = formatRelativeTime(event.resetTime - now);
 			const tooltipAttrs = buildTooltipAttrs({
@@ -2522,7 +2549,9 @@ function buildResetCalendarSection(statsData: UsageStatistics | null, locale?: s
 			const resetIdAttr = event.id ? ` data-reset-id="${escapeHtml(event.id)}"` : '';
 			return `<span class="reset-calendar-label" style="color:${event.colorVar}"${resetIdAttr} ${tooltipAttrs} tabindex="0">${escapeHtml(event.label)}</span>`;
 		}).join('');
-		return `<div class="reset-calendar-label-cell">${labels}</div>`;
+		const cellClass = span > 1 ? 'reset-calendar-label-cell reset-calendar-label-cell-row' : 'reset-calendar-label-cell';
+		const spanStyle = span > 1 ? ` style="grid-column:span ${span}"` : '';
+		return `<div class="${cellClass}"${spanStyle}>${labels}</div>`;
 	}).join('');
 
 	const separatorsHtml = Array.from({ length: dayCount - 1 }, (_, i) =>
@@ -2814,6 +2843,10 @@ function buildPanelSectionContent(id: PanelSectionId, ctx: PanelBuildContext): s
 		default:
 			return '';
 	}
+}
+
+function panelSectionHasContent(id: PanelSectionId, ctx: PanelBuildContext): boolean {
+	return buildPanelSectionContent(id, ctx).length > 0;
 }
 
 function buildPanelSectionToolbar(id: PanelSectionId, isFirst: boolean, isLast: boolean, hidden: boolean): string {

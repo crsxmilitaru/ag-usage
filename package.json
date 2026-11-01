@@ -1,6 +1,6 @@
 {
   "name": "ag-usage",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "displayName": "AG Usage",
   "description": "Track usage of Antigravity AI models",
   "author": "Cristian Militaru",
@@ -105,33 +105,35 @@
           "description": "Pause automatic background refresh when the VS Code window is not focused."
         },
         "ag-usage.statusBarDisplay": {
-          "type": "string",
-          "default": "all",
-          "enum": [
-            "average",
-            "all",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "gemini",
+              "other",
+              "argon",
+              "average"
+            ]
+          },
+          "default": [
             "gemini",
             "other",
             "argon"
           ],
-          "enumDescriptions": [
-            "Show the average usage across all groups",
-            "Show all groups side by side",
-            "Show only Gemini usage",
-            "Show only Other usage",
-            "Show only Argon usage"
-          ],
-          "description": "What to display in the status bar."
+          "uniqueItems": true,
+          "description": "Items to display in the status bar, in order."
         },
         "ag-usage.statusBarLimitDisplay": {
           "type": "string",
           "default": "both",
           "enum": [
-            "only5h",
+            "5h",
+            "weekly",
             "both"
           ],
           "enumDescriptions": [
-            "Show only the 5-hour quota",
+            "Show only the 5-hour quota (omits groups without 5-hour limits)",
+            "Show only the weekly quota",
             "Show both 5-hour and weekly quotas (e.g. Gemini 21% (99%))"
           ],
           "description": "How to display the quota limits in the status bar."
@@ -140,6 +142,11 @@
           "type": "boolean",
           "default": true,
           "description": "Show time remaining until next reset in the status bar when quota reaches 0%."
+        },
+        "ag-usage.statusBarWeeklyReset": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show time remaining until weekly reset next to the weekly quota percentage in the status bar (e.g. (49% 1d 2h))."
         },
         "ag-usage.notifyOnFullQuota": {
           "type": "boolean",

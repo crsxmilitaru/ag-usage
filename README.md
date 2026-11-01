@@ -74,22 +74,24 @@
 
 - `ag-usage.pauseWhenUnfocused`: Pause automatic background refresh when the VS Code window is not focused. Default is `true`.
 
-- `ag-usage.statusBarDisplay`: Control what information is shown in the status bar. Options:
-  - `average` - Shows the average usage across all groups
-  - `all` (default) - Shows all available groups side by side
-  - `gemini` - Shows only Gemini usage
-  - `other` - Shows only Other usage
-  - `argon` - Shows only the Gemini 4 Argon weekly limit (Pro)
+- `ag-usage.statusBarDisplay`: List of items to display in the status bar, in order. Default is `["gemini", "other", "argon"]`. Available items:
+  - `gemini` - Gemini usage
+  - `other` - Other usage
+  - `argon` - Gemini 4 Argon weekly limit (Pro)
+  - `average` - Average usage across all groups
 
 - `ag-usage.statusBarLimitDisplay`: Control how to display the quota limits in the status bar. Options:
-  - `only5h` - Shows only the 5-hour quota (e.g., `Gemini 77%`)
-  - `both` (default) - Shows both 5-hour and weekly quotas (e.g., `Gemini 21% (99%)`)
+  - `5h` - Shows only the 5-hour quota (omits groups without 5-hour limits, e.g., `Gemini 77%`)
+  - `weekly` - Shows only the weekly quota (e.g., `Gemini 99%`)
+  - `both` (default) - Shows both 5-hour and weekly quotas (e.g., `Gemini 21% (99%)`, `Argon (99%)`)
 
 - `ag-usage.statusBarAlignment`: Control the alignment of the status bar item. Options: `Left`, `Right` (default).
 
 - `ag-usage.statusBarPriority`: Control the priority of the status bar item. Higher values move the item further to the left (for Right alignment). Default is `100`.
 
 - `ag-usage.statusBarCountdown`: Show time remaining until next reset in the status bar when quota reaches 0%. Default is `true`.
+
+- `ag-usage.statusBarWeeklyReset`: Show time remaining until weekly reset next to the weekly quota percentage in the status bar (e.g., `(67% 1d 2h)`). Default is `false`.
 
 - `ag-usage.notifyOnFullQuota`: Show a notification when a model category reaches 100% usage. Default is `false`.
 
