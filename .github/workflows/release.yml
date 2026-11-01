@@ -15,7 +15,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Read release metadata
         id: release_meta
@@ -46,17 +46,17 @@ jobs:
           echo "tag=$version" >> "$GITHUB_OUTPUT"
           echo "vsix_name=ag-usage-$version.vsix" >> "$GITHUB_OUTPUT"
 
-          git log -1 --pretty=%b > release-notes.md
+          git log -1 --pretty=%b > "$RUNNER_TEMP/release-notes.md"
 
-          if [[ ! -s release-notes.md ]]; then
-            echo "$version" > release-notes.md
+          if [[ ! -s "$RUNNER_TEMP/release-notes.md" ]]; then
+            echo "$version" > "$RUNNER_TEMP/release-notes.md"
           fi
 
       - name: Setup Node
         if: steps.release_meta.outputs.should_release == 'true'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
 
       - name: Install dependencies
@@ -78,4 +78,4 @@ jobs:
           gh release create "$TAG" "$VSIX_NAME" \
             --title "$VERSION" \
             --target "$GITHUB_SHA" \
-            --notes-file release-notes.md
+            --notes-file "$RUNNER_TEMP/release-notes.md"

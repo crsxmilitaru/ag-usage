@@ -25,3 +25,4 @@ dev/**
 .nvmrc
 AGENTS.md
 eslint.config.mjs
+release-notes.md
