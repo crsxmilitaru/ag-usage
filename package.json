@@ -1,6 +1,6 @@
 {
   "name": "ag-usage",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "displayName": "AG Usage",
   "description": "Track usage of Antigravity AI models",
   "author": "Cristian Militaru",
@@ -79,25 +79,30 @@
         "icon": "$(save)"
       },
       {
-        "command": "ag-usage.togglePanelLayoutEdit",
-        "title": "Edit Dashboard Layout",
-        "icon": "$(edit)"
+        "command": "ag-usage.openPanelSettings",
+        "title": "Open Settings",
+        "icon": "$(gear)"
       },
       {
-        "command": "ag-usage.finishPanelLayoutEdit",
-        "title": "Done Editing Layout",
+        "command": "ag-usage.closePanelSettings",
+        "title": "Done Editing Settings",
         "icon": "$(check)"
       }
     ],
     "configuration": {
       "title": "AG Usage",
       "properties": {
+        "ag-usage.liveSync": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically sync usage right after Antigravity AI turns, when quota reset timers expire, and when refocusing the window."
+        },
         "ag-usage.refreshInterval": {
           "type": "number",
           "default": 60,
           "minimum": 0,
           "maximum": 3600,
-          "description": "Refresh interval in seconds. Set to 0 to disable auto-refresh."
+          "description": "Periodic refresh interval in seconds. Set to 0 to disable periodic polling."
         },
         "ag-usage.pauseWhenUnfocused": {
           "type": "boolean",
@@ -112,7 +117,8 @@
               "gemini",
               "other",
               "argon",
-              "average"
+              "average",
+              "total"
             ]
           },
           "default": [
@@ -252,46 +258,41 @@
             "activity"
           ],
           "uniqueItems": true,
-          "description": "Dashboard section order. Prefix a section with ! to hide it in place (for example !health). Hidden sections stay in this order, appear dimmed while editing the layout, and can be shown again from there."
+          "description": "Dashboard section order. Prefix a section with ! to hide it in place (for example !health)."
         }
       }
     },
     "menus": {
       "commandPalette": [
         {
-          "command": "ag-usage.togglePanelLayoutEdit",
+          "command": "ag-usage.openPanelSettings",
           "when": "false"
         },
         {
-          "command": "ag-usage.finishPanelLayoutEdit",
+          "command": "ag-usage.closePanelSettings",
           "when": "false"
         }
       ],
       "view/title": [
         {
           "command": "ag-usage.exportHistory",
-          "when": "view == ag-usage.sidebarPanel",
+          "when": "view == ag-usage.sidebarPanel && !ag-usage.panelSettingsOpen",
           "group": "navigation@1"
         },
         {
           "command": "ag-usage.refresh",
-          "when": "view == ag-usage.sidebarPanel",
+          "when": "view == ag-usage.sidebarPanel && !ag-usage.panelSettingsOpen",
           "group": "navigation@2"
         },
         {
-          "command": "ag-usage.openSettings",
-          "when": "view == ag-usage.sidebarPanel",
+          "command": "ag-usage.openPanelSettings",
+          "when": "view == ag-usage.sidebarPanel && !ag-usage.panelSettingsOpen",
           "group": "navigation@3"
         },
         {
-          "command": "ag-usage.togglePanelLayoutEdit",
-          "when": "view == ag-usage.sidebarPanel && !ag-usage.panelLayoutEditing",
-          "group": "navigation@4"
-        },
-        {
-          "command": "ag-usage.finishPanelLayoutEdit",
-          "when": "view == ag-usage.sidebarPanel && ag-usage.panelLayoutEditing",
-          "group": "navigation@4"
+          "command": "ag-usage.closePanelSettings",
+          "when": "view == ag-usage.sidebarPanel && ag-usage.panelSettingsOpen",
+          "group": "navigation@3"
         }
       ]
     }
@@ -311,11 +312,11 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@resvg/resvg-js": "^2.6.2",
-    "@types/node": "^26.6.5",
+    "@types/node": "^26.6.6",
     "@types/vscode": "^1.107.0",
     "esbuild": "^0.28.2",
-    "eslint": "^10.13.0",
+    "eslint": "^10.15.0",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.72.1"
+    "typescript-eslint": "^8.73.0"
   }
 }

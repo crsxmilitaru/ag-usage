@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.4.0] - 2026-11-22
+
+- Added Live Sync (`ag-usage.liveSync`) to sync after AI turns, quota resets, and window focus
+- Added an in-panel Settings view in the sidebar dashboard
+- Added `total` option to `ag-usage.statusBarDisplay` to show the sum of remaining quota across all models
+- Expanded model usage tracking with more thinking levels and SQLite WAL support
+- Improved local API discovery, request reliability, and StatusGator redirect handling
+- Fixed the extension staying stuck on a red connection error when the editor starts unfocused before the Antigravity process is ready
+- Fixed 0% quota detection, 12-hour timestamp formatting, and reset countdown display edge cases
+
 ## [2.3.0] - 2026-11-01
 
 - Added `ag-usage.statusBarWeeklyReset` option to show time remaining until weekly reset next to the weekly quota percentage in the status bar

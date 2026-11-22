@@ -1,64 +1,68 @@
 export interface QuotaGroup {
-  quota: number;
-  resetTime: number | null;
-  buckets?: QuotaBucket[];
-  models?: string[];
+	quota: number;
+	resetTime: number | null;
+	buckets?: QuotaBucket[];
+	models?: string[];
 }
 
 export interface QuotaBucket {
-  window: 'weekly' | '5h' | string;
-  displayName: string;
-  quota: number;
-  resetTime: number | null;
+	window: 'weekly' | '5h' | string;
+	displayName: string;
+	quota: number;
+	resetTime: number | null;
 }
 
+export type LocalProtocol = 'https' | 'http';
+
 export interface CachedConnection {
-  port: number;
-  csrfToken: string;
-  timestamp: number;
+	port: number;
+	csrfToken: string;
+	protocol: LocalProtocol;
+	timestamp: number;
 }
 
 export interface CreditInfo {
-  creditType: string;
-  creditAmount: number;
-  minimumCreditAmountForUsage: number;
+	creditType: string;
+	creditAmount: number;
+	minimumCreditAmountForUsage: number;
 }
 
 export interface UsageStatistics {
-  groups: Record<string, QuotaGroup>;
-  plan?: string;
-  planName?: string;
-  credits?: CreditInfo;
+	groups: Record<string, QuotaGroup>;
+	plan?: string;
+	planName?: string;
+	credits?: CreditInfo;
 }
 
 export interface ModelUsageEntry {
-  label: string;
-  model: string;
-  thinkingLevel: string;
-  count: number;
+	label: string;
+	model: string;
+	thinkingLevel: string;
+	count: number;
 }
 
 export interface ModelUsageSummary {
-  entries: ModelUsageEntry[];
-  totalGenerations: number;
-  conversationCount: number;
-  scannedAt: number;
+	entries: ModelUsageEntry[];
+	totalGenerations: number;
+	conversationCount: number;
+	scannedAt: number;
 }
 
 export interface DailyUsageEntry {
-  date: string;
-  category: string;
-  consumed: number;
+	date: string;
+	category: string;
+	consumed: number;
 }
 
 export type ProcessId = number;
 
 export interface ProcessInfo {
-  pid: ProcessId;
-  cmd: string;
+	pid: ProcessId;
+	parentPid?: ProcessId;
+	cmd: string;
 }
 
-export type StatusBarDisplayItem = 'gemini' | 'other' | 'argon' | 'average';
+export type StatusBarDisplayItem = 'gemini' | 'other' | 'argon' | 'average' | 'total';
 
 export type StatusBarDisplayMode = StatusBarDisplayItem | 'all';
 
@@ -73,66 +77,70 @@ export type ServiceStatus = 'loading' | 'connected' | 'degraded' | 'disconnected
 export type PublicServiceState = 'up' | 'warn' | 'down' | 'unknown';
 
 export interface PublicServiceHealthPoint {
-  timestamp: number;
-  value: number;
-  status: 0 | 1 | 2;
+	timestamp: number;
+	value: number;
+	status: 0 | 1 | 2;
 }
 
 export interface PublicServiceStatus {
-  state: PublicServiceState;
-  label: string;
-  details?: string;
-  checkedAt: number;
-  url: string;
-  chartEndsAt?: number;
-  healthPoints?: PublicServiceHealthPoint[];
+	state: PublicServiceState;
+	label: string;
+	details?: string;
+	checkedAt: number;
+	url: string;
+	chartEndsAt?: number;
+	healthPoints?: PublicServiceHealthPoint[];
 }
 
 export interface QuotaInfo {
-  remainingFraction?: number | string;
-  resetTime?: string | number;
+	remainingFraction?: number | string;
+	resetTime?: string | number;
 }
 
 export interface ModelConfig {
-  label: string;
-  quotaInfo?: QuotaInfo;
+	label: string;
+	quotaInfo?: QuotaInfo;
 }
 
 export interface ServerUserStatusResponse {
-  userStatus?: {
-    cascadeModelConfigData?: { clientModelConfigs: ModelConfig[] };
-    planStatus?: {
-      planInfo?: {
-        planName?: string;
-      };
-    };
-    userTier?: {
-      name?: string;
-      id?: string;
-      availableCredits?: {
-        creditType?: string;
-        creditAmount?: number | string;
-        minimumCreditAmountForUsage?: number | string;
-      }[];
-    };
-    plan?: string;
-    planName?: string;
-  };
-  plan?: string;
-  planName?: string;
+	userStatus?: {
+		cascadeModelConfigData?: { clientModelConfigs: ModelConfig[] };
+		planStatus?: {
+			planInfo?: {
+				planName?: string;
+			};
+		};
+		userTier?: {
+			name?: string;
+			id?: string;
+			availableCredits?: {
+				creditType?: string;
+				creditAmount?: number | string;
+				minimumCreditAmountForUsage?: number | string;
+			}[];
+		};
+		plan?: string;
+		planName?: string;
+	};
+	plan?: string;
+	planName?: string;
+}
+
+export interface ServerQuotaSummaryGroup {
+	groupId?: string;
+	displayName?: string;
+	buckets?: Array<{
+		bucketId?: string;
+		displayName?: string;
+		remainingFraction?: number | string;
+		resetTime?: string | number;
+		window?: string;
+	}>;
 }
 
 export interface ServerQuotaSummaryResponse {
-  response?: {
-    groups?: Array<{
-      displayName?: string;
-      buckets?: Array<{
-        bucketId?: string;
-        displayName?: string;
-        remainingFraction?: number | string;
-        resetTime?: string | number;
-        window?: string;
-      }>;
-    }>;
-  };
+	response?: {
+		groups?: ServerQuotaSummaryGroup[];
+	};
+	groups?: ServerQuotaSummaryGroup[];
 }

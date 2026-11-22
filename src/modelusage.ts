@@ -1,8 +1,8 @@
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import { MODEL_USAGE_CONVERSATION_DIRS, MODEL_USAGE_REFRESH_INTERVAL_MS } from './constants';
 import { ModelUsageEntry, ModelUsageSummary } from './types';
+import { getGeminiDir, isMissingPathError } from './utils';
 
 type ScanLogger = (message: string, error?: unknown) => void;
 
@@ -26,9 +26,13 @@ try {
 
 const SLUG_LEVEL_SUFFIXES: ReadonlyArray<readonly [suffix: string, level: string]> = [
 	['-extra-low', 'Extra Low'],
+	['-extra-high', 'Extra High'],
+	['-xhigh', 'XHigh'],
+	['-minimal', 'Minimal'],
 	['-low', 'Low'],
 	['-medium', 'Medium'],
 	['-high', 'High'],
+	['-max', 'Max'],
 	['-thinking', 'Thinking']
 ];
 const STRIPPED_SLUG_SUFFIXES = ['-tiered'];
@@ -40,9 +44,21 @@ const SLUG_DEFAULT_LEVELS: Record<string, string> = {
 	gemini: 'High'
 };
 
+// eslint-disable-next-line no-control-regex
+const METADATA_LABEL_REGEX = /\xaa\x01[\x01-\x7f]([A-Za-z0-9. -]+\((?:Minimal|Extra Low|Low|Medium|High|Extra High|XHigh|Max|Thinking)\))/;
+// eslint-disable-next-line no-control-regex
+const METADATA_LABEL_GLOBAL_REGEX = /\xaa\x01[\x01-\x7f]([A-Za-z0-9. -]+\((?:Minimal|Extra Low|Low|Medium|High|Extra High|XHigh|Max|Thinking)\))/g;
+// eslint-disable-next-line no-control-regex
+const METADATA_SLUG_REGEX = /\x9a\x01[\x01-\x7f]((?:gemini|claude|gpt-oss|gpt)-[a-z0-9]+(?:[-.][a-z0-9]+)*)/;
+const FALLBACK_SLUG_REGEX = /\b((?:gemini|claude|gpt-oss|gpt)-[a-z0-9]+(?:[-.][a-z0-9]+)*)/;
+// eslint-disable-next-line no-control-regex
+const HASHED_SLUG_GLOBAL_REGEX = /([0-9a-f]{16}).{0,4}?\x9a\x01[\x01-\x7f]?((?:gemini|claude|gpt-oss|gpt)-[a-z0-9]+(?:[-.][a-z0-9]+)*)/g;
+
 interface FileCacheEntry {
 	mtimeMs: number;
 	size: number;
+	walMtimeMs: number;
+	walSize: number;
 	usages: Array<{ model: string; thinkingLevel: string }>;
 }
 
@@ -83,23 +99,28 @@ function parseModelSlug(slug: string): { model: string; thinkingLevel: string } 
 	return { model, thinkingLevel: resolvedLevel };
 }
 
+function parseLabelString(rawLabel: string): { model: string; thinkingLevel: string } | null {
+	const splitMatch = rawLabel.trim().match(/^(.*?)\s*\((.*?)\)$/);
+	if (!splitMatch) {
+		return null;
+	}
+	return { model: splitMatch[1].trim(), thinkingLevel: splitMatch[2].trim() };
+}
+
 function parseGenMetadataRow(data: Buffer | Uint8Array): { model: string; thinkingLevel: string } | null {
 	const text = Buffer.isBuffer(data) ? data.toString('latin1') : Buffer.from(data).toString('latin1');
-	// eslint-disable-next-line no-control-regex
-	const labelMatch = text.match(/\xaa\x01[\x01-\x7f]([A-Za-z0-9. -]+\((?:Low|Medium|High|Thinking|Extra Low)\))/);
+	const labelMatch = text.match(METADATA_LABEL_REGEX);
 	if (labelMatch) {
-		const full = labelMatch[1].trim();
-		const splitMatch = full.match(/^(.*?)\s*\((.*?)\)$/);
-		if (splitMatch) {
-			return { model: splitMatch[1].trim(), thinkingLevel: splitMatch[2].trim() };
+		const parsed = parseLabelString(labelMatch[1]);
+		if (parsed) {
+			return parsed;
 		}
 	}
-	// eslint-disable-next-line no-control-regex
-	const slugMatch = text.match(/\x9a\x01[\x01-\x7f]((?:gemini|claude|gpt-oss|gpt)-[a-z0-9]+(?:[-.][a-z0-9]+)*)/);
+	const slugMatch = text.match(METADATA_SLUG_REGEX);
 	if (slugMatch) {
 		return parseModelSlug(slugMatch[1]);
 	}
-	const fallbackMatch = text.match(/\b((?:gemini|claude|gpt-oss|gpt)-[a-z0-9]+(?:[-.][a-z0-9]+)*)/);
+	const fallbackMatch = text.match(FALLBACK_SLUG_REGEX);
 	if (fallbackMatch) {
 		return parseModelSlug(fallbackMatch[1]);
 	}
@@ -110,19 +131,16 @@ function extractModelUsagesFromBuffer(buffer: Buffer): Array<{ model: string; th
 	const text = buffer.toString('latin1');
 	const usages: Array<{ model: string; thinkingLevel: string }> = [];
 
-	// eslint-disable-next-line no-control-regex
-	for (const match of text.matchAll(/\xaa\x01[\x01-\x7f]([A-Za-z0-9. -]+\((?:Low|Medium|High|Thinking|Extra Low)\))/g)) {
-		const full = match[1].trim();
-		const splitMatch = full.match(/^(.*?)\s*\((.*?)\)$/);
-		if (splitMatch) {
-			usages.push({ model: splitMatch[1].trim(), thinkingLevel: splitMatch[2].trim() });
+	for (const match of text.matchAll(METADATA_LABEL_GLOBAL_REGEX)) {
+		const parsed = parseLabelString(match[1]);
+		if (parsed) {
+			usages.push(parsed);
 		}
 	}
 
 	if (usages.length === 0) {
 		const slugByRequestHash = new Map<string, string>();
-		// eslint-disable-next-line no-control-regex
-		for (const match of text.matchAll(/([0-9a-f]{16}).{0,4}?\x9a\x01[\x01-\x7f]?((?:gemini|claude|gpt-oss|gpt)-[a-z0-9]+(?:[-.][a-z0-9]+)*)/g)) {
+		for (const match of text.matchAll(HASHED_SLUG_GLOBAL_REGEX)) {
 			if (!slugByRequestHash.has(match[1])) {
 				slugByRequestHash.set(match[1], match[2]);
 			}
@@ -138,14 +156,123 @@ function extractModelUsagesFromBuffer(buffer: Buffer): Array<{ model: string; th
 	return usages;
 }
 
+const SQLITE_HEADER_MAGIC = 'SQLite format 3\0';
+const SQLITE_WAL_HEADER_SIZE = 32;
+const SQLITE_WAL_FRAME_HEADER_SIZE = 24;
+const SQLITE_WAL_MAGIC_LE = 0x377f0682;
+const SQLITE_WAL_MAGIC_BE = 0x377f0683;
+
+function readSqlitePageSize(dbBuffer: Buffer): number | null {
+	if (dbBuffer.length < 100 || dbBuffer.subarray(0, 16).toString('latin1') !== SQLITE_HEADER_MAGIC) {
+		return null;
+	}
+	const rawSize = dbBuffer.readUInt16BE(16);
+	const pageSize = rawSize === 1 ? 65536 : rawSize;
+	if (pageSize < 512 || pageSize > 65536 || (pageSize & (pageSize - 1)) !== 0) {
+		return null;
+	}
+	return pageSize;
+}
+
+function applyWalToDatabaseBuffer(dbBuffer: Buffer, walBuffer: Buffer): Buffer {
+	const pageSize = readSqlitePageSize(dbBuffer);
+	if (!pageSize || walBuffer.length < SQLITE_WAL_HEADER_SIZE) {
+		return dbBuffer;
+	}
+
+	const magic = walBuffer.readUInt32BE(0);
+	if (magic !== SQLITE_WAL_MAGIC_LE && magic !== SQLITE_WAL_MAGIC_BE) {
+		return dbBuffer;
+	}
+
+	const walPageSize = walBuffer.readUInt32BE(8);
+	if (walPageSize !== pageSize) {
+		return dbBuffer;
+	}
+
+	const salt1 = walBuffer.readUInt32BE(16);
+	const salt2 = walBuffer.readUInt32BE(20);
+	const frameSize = SQLITE_WAL_FRAME_HEADER_SIZE + pageSize;
+	const maxFrames = Math.floor((walBuffer.length - SQLITE_WAL_HEADER_SIZE) / frameSize);
+	const dbPageCount = Math.ceil(dbBuffer.length / pageSize);
+	const maxReasonablePages = dbPageCount + maxFrames;
+
+	const committedPages = new Map<number, number>();
+	let pendingPages = new Map<number, number>();
+	let committedPageCount = dbPageCount;
+
+	for (let offset = SQLITE_WAL_HEADER_SIZE; offset + frameSize <= walBuffer.length; offset += frameSize) {
+		const frameSalt1 = walBuffer.readUInt32BE(offset + 8);
+		const frameSalt2 = walBuffer.readUInt32BE(offset + 12);
+		if (frameSalt1 !== salt1 || frameSalt2 !== salt2) {
+			break;
+		}
+		const pageNumber = walBuffer.readUInt32BE(offset);
+		const dbSizeAfterCommit = walBuffer.readUInt32BE(offset + 4);
+		if (pageNumber < 1) {
+			break;
+		}
+		pendingPages.set(pageNumber, offset + SQLITE_WAL_FRAME_HEADER_SIZE);
+		if (dbSizeAfterCommit > 0 && dbSizeAfterCommit <= maxReasonablePages) {
+			for (const [page, dataOffset] of pendingPages) {
+				committedPages.set(page, dataOffset);
+			}
+			pendingPages = new Map();
+			committedPageCount = dbSizeAfterCommit;
+		}
+	}
+
+	if (committedPages.size === 0 || committedPageCount === 0) {
+		return dbBuffer;
+	}
+
+	const logicalBuffer = Buffer.alloc(committedPageCount * pageSize);
+	const baseCopyBytes = Math.min(dbBuffer.length, logicalBuffer.length);
+	dbBuffer.copy(logicalBuffer, 0, 0, baseCopyBytes);
+
+	for (const [pageNumber, dataOffset] of committedPages) {
+		if (pageNumber > committedPageCount) {
+			continue;
+		}
+		walBuffer.copy(logicalBuffer, (pageNumber - 1) * pageSize, dataOffset, dataOffset + pageSize);
+	}
+
+	return logicalBuffer;
+}
+
+async function getWalStats(filePath: string): Promise<{ mtimeMs: number; size: number }> {
+	try {
+		const walStats = await fs.promises.stat(`${filePath}-wal`);
+		return { mtimeMs: walStats.mtimeMs, size: walStats.size };
+	} catch (error) {
+		if (!isMissingPathError(error)) {
+			return { mtimeMs: -1, size: -1 };
+		}
+		return { mtimeMs: 0, size: 0 };
+	}
+}
+
 async function readFileUsages(filePath: string, log: ScanLogger): Promise<Array<{ model: string; thinkingLevel: string }>> {
-	const stats = await fs.promises.stat(filePath);
+	const [stats, walStats] = await Promise.all([
+		fs.promises.stat(filePath),
+		getWalStats(filePath)
+	]);
 	const cached = fileCache.get(filePath);
-	if (cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) {
+	if (
+		cached &&
+		walStats.mtimeMs >= 0 &&
+		cached.mtimeMs === stats.mtimeMs &&
+		cached.size === stats.size &&
+		cached.walMtimeMs === walStats.mtimeMs &&
+		cached.walSize === walStats.size
+	) {
 		return cached.usages;
 	}
 
 	let usages: Array<{ model: string; thinkingLevel: string }> = [];
+	let sqliteReadSucceeded = false;
+	let fallbackReadSucceeded = false;
+
 	if (SqliteDatabase) {
 		try {
 			const db = new SqliteDatabase(filePath, { readOnly: true });
@@ -157,6 +284,7 @@ async function readFileUsages(filePath: string, log: ScanLogger): Promise<Array<
 						usages.push(parsed);
 					}
 				}
+				sqliteReadSucceeded = true;
 			} finally {
 				db.close();
 			}
@@ -166,30 +294,44 @@ async function readFileUsages(filePath: string, log: ScanLogger): Promise<Array<
 		}
 	}
 
-	if (usages.length === 0) {
+	if (!sqliteReadSucceeded) {
 		try {
-			const buffer = await fs.promises.readFile(filePath);
-			usages = extractModelUsagesFromBuffer(buffer);
+			const dbBuffer = await fs.promises.readFile(filePath);
+			let targetBuffer: Buffer = dbBuffer;
+			let walReadComplete = true;
+			if (walStats.size > 0) {
+				try {
+					const walBuffer = await fs.promises.readFile(`${filePath}-wal`);
+					targetBuffer = applyWalToDatabaseBuffer(dbBuffer, walBuffer);
+				} catch (error) {
+					if (!isMissingPathError(error)) {
+						walReadComplete = false;
+						log(`Failed to read WAL file: ${path.basename(filePath)}-wal`, error);
+					}
+				}
+			}
+			usages = extractModelUsagesFromBuffer(targetBuffer);
+			fallbackReadSucceeded = walReadComplete;
 		} catch (error) {
 			log(`Failed to read conversation file: ${path.basename(filePath)}`, error);
 			usages = [];
 		}
 	}
 
-	fileCache.set(filePath, { mtimeMs: stats.mtimeMs, size: stats.size, usages });
+	if ((sqliteReadSucceeded || fallbackReadSucceeded) && walStats.mtimeMs >= 0) {
+		fileCache.set(filePath, {
+			mtimeMs: stats.mtimeMs,
+			size: stats.size,
+			walMtimeMs: walStats.mtimeMs,
+			walSize: walStats.size,
+			usages
+		});
+	}
 	return usages;
 }
 
-function isExpectedMissingDirectoryError(error: unknown): boolean {
-	if (!error || typeof error !== 'object' || !('code' in error)) {
-		return false;
-	}
-	const code = error.code;
-	return code === 'ENOENT' || code === 'ENOTDIR';
-}
-
 async function listConversationFiles(log: ScanLogger): Promise<string[]> {
-	const conversationsRoot = path.join(os.homedir(), '.gemini');
+	const conversationsRoot = getGeminiDir();
 	const files: string[] = [];
 	for (const dirName of MODEL_USAGE_CONVERSATION_DIRS) {
 		const dir = path.join(conversationsRoot, dirName, 'conversations');
@@ -197,7 +339,7 @@ async function listConversationFiles(log: ScanLogger): Promise<string[]> {
 		try {
 			entries = await fs.promises.readdir(dir, { withFileTypes: true });
 		} catch (error) {
-			if (!isExpectedMissingDirectoryError(error)) {
+			if (!isMissingPathError(error)) {
 				log(`Failed to list conversation directory: ${dir}`, error);
 			}
 			continue;

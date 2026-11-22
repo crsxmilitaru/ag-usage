@@ -28,7 +28,7 @@
     <img src="https://raw.githubusercontent.com/crsxmilitaru/ag-usage/main/assets/panel.png" alt="AG Usage Dashboard Panel Preview" width="800">
   </p>
 
-- **Customizable dashboard layout**: Reorder or hide dashboard sections using the layout edit mode in the dashboard title bar or via extension settings.
+- **Customizable dashboard layout**: Reorder or hide dashboard sections from the in-panel settings view or via extension settings.
 
 - **Reset timeline**: Displays a visual timeline of upcoming weekly quota resets across days.
 
@@ -42,7 +42,7 @@
     <img src="https://raw.githubusercontent.com/crsxmilitaru/ag-usage/main/assets/statusbar.png" alt="AG Usage Status Bar Preview" height="32">
   </p>
 
-- **Auto-refresh**: Usage data is automatically updated every 60 seconds by default, but can be configured. By default, it also pauses background refreshes when the IDE window is unfocused.
+- **Live sync & auto-refresh**: Automatically syncs usage after Antigravity AI turns, when quota reset timers expire, and when refocusing the window, alongside periodic polling every 60 seconds by default. Background refreshes pause when the IDE window is unfocused by default.
 
 - **Detailed tooltip**: Hover over the status bar item to see a detailed breakdown and visual progress bars for model categories (as they are calculated by Antigravity):
   - **Gemini** - Gemini Pro and Gemini Flash models
@@ -70,7 +70,9 @@
 
 ## 📝 Configuration
 
-- `ag-usage.refreshInterval`: Set the interval (in seconds) between automatic refreshes. Set to `0` to disable auto-refresh. Default is `60` seconds.
+- `ag-usage.liveSync`: Automatically sync usage right after Antigravity AI turns, when quota reset timers expire, and when refocusing the window. Default is `true`.
+
+- `ag-usage.refreshInterval`: Periodic refresh interval (in seconds). Set to `0` to disable periodic polling. Default is `60`.
 
 - `ag-usage.pauseWhenUnfocused`: Pause automatic background refresh when the VS Code window is not focused. Default is `true`.
 
@@ -79,6 +81,7 @@
   - `other` - Other usage
   - `argon` - Gemini 4 Argon weekly limit (Pro)
   - `average` - Average usage across all groups
+  - `total` - Weighted total usage across all models
 
 - `ag-usage.statusBarLimitDisplay`: Control how to display the quota limits in the status bar. Options:
   - `5h` - Shows only the 5-hour quota (omits groups without 5-hour limits, e.g., `Gemini 77%`)
@@ -93,7 +96,7 @@
 
 - `ag-usage.statusBarWeeklyReset`: Show time remaining until weekly reset next to the weekly quota percentage in the status bar (e.g., `(67% 1d 2h)`). Default is `false`.
 
-- `ag-usage.notifyOnFullQuota`: Show a notification when a model category reaches 100% usage. Default is `false`.
+- `ag-usage.notifyOnFullQuota`: Show a notification when a model category's quota refills to 100%. Default is `false`.
 
 - `ag-usage.lowQuotaNotificationThreshold`: Percentage threshold to show a warning when quota drops below this value. Default is `0` (disabled). Set to a value like `10` to enable.
 
@@ -107,7 +110,7 @@
 
 - `ag-usage.enablePublicStatus`: Fetch public Google Antigravity service health from StatusGator. When disabled, the dashboard only checks the local usage API. Default is `true`.
 
-- `ag-usage.panelSections`: Dashboard section order (`plan`, `health`, `quotas`, `resets`, `models`, `activity`). Prefix a section with `!` to hide it (for example `!health`). Reorder or hide sections from the dashboard title bar, or edit this list in settings. Default is all six in that order.
+- `ag-usage.panelSections`: Dashboard section order (`plan`, `health`, `quotas`, `resets`, `models`, `activity`). Prefix a section with `!` to hide it (for example `!health`). Reorder or hide sections from the in-panel settings view, or edit this list in settings. Default is all six in that order.
 
 - `ag-usage.maxHistoryItems`: Maximum number of history items to persist per group. Default is `50`.
 

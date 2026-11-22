@@ -14,10 +14,20 @@ AG Usage (`ag-usage`) is a Visual Studio Code extension designed to monitor and 
 
 ## Project Structure
 
-- `src/extension.ts`: Extension entry point. Handles activation, deactivation, command registrations (refresh, settings, panel, layout editing, history export), configuration change events, `ExtensionState` lifecycle management, and refresh scheduling.
+- `src/extension.ts`: Extension entry point. Handles activation, deactivation, command registrations (refresh, settings, panel, history export), configuration change events, `ExtensionState` lifecycle management, and refresh scheduling.
 - `src/api.ts`: API interaction layer. Discovers running Antigravity processes, extracts CSRF tokens and ports, communicates with internal `LanguageServerService` endpoints (`RetrieveUserQuotaSummary`, `GetUserStatus`, `GetUnleashData`), and aggregates quota statistics.
 - `src/renderer.ts`: Status bar rendering logic. Constructs status bar text, countdown indicators, and rich Markdown tooltips.
-- `src/panel.ts`: Webview panel provider (`UsageViewProvider` implementing `vscode.WebviewViewProvider`). Renders the interactive sidebar dashboard (`ag-usage.sidebarPanel`) with live quota gauges, reset timeline, daily activity heatmap, history charts, model lists, service health status, customizable section layout, and actionable error screens.
+- `src/panel/`: Webview panel provider and dashboard rendering modules:
+- `src/panel/index.ts`: `UsageViewProvider` implementing `vscode.WebviewViewProvider`, HTML assembly, and customizable section layout handling.
+- `src/panel/cards.ts`: Plan/credits top row, quota cards, bucket progress bars, and history sparklines/lists.
+- `src/panel/widgets.ts`: StatusGator health chart, reset timeline, usage activity heatmap, and most used models section.
+- `src/panel/screens.ts`: Loading, not-found, and error screens, fallback error HTML, and tooltip attribute builders.
+- `src/panel/styles.ts`: Dashboard CSS styles.
+- `src/panel/script.ts`: Client-side webview interaction script.
+- `src/panel/settings.ts`: In-panel settings state normalization, validation, persistence, and HTML rendering.
+- `src/panel/settingsStyles.ts`: In-panel settings CSS styles.
+- `src/panel/settingsScript.ts`: Client-side in-panel settings interaction and validation script.
+- `src/watcher.ts`: File system watcher (`ConversationWatcher`) monitoring Antigravity conversation directories for Live Sync refreshes.
 - `src/history.ts`: State management for quota history and daily usage tracking (`QuotaHistory`, `QuotaHistoryEntry`, `DailyUsageEntry`).
 - `src/modelusage.ts`: Local model usage scanner. Parses SQLite `gen_metadata` generation records across Antigravity storage directories (`~/.gemini/antigravity`, `~/.gemini/antigravity-ide`, `~/.gemini/antigravity-cli`) and aggregates per-model, per-thinking-level generation counts for the "Most Used Models" panel section.
 - `src/formatter.ts`: Helper functions for formatting dates, times, relative countdowns, quota percentages, connection error details, and error tooltips.
@@ -67,4 +77,4 @@ AG Usage (`ag-usage`) is a Visual Studio Code extension designed to monitor and 
 - **Lint**: `npm run lint` or `npm run lint:fix` to run ESLint across TypeScript source files.
 - **Packaging**: `npm run package` to generate a `.vsix` file using `@vscode/vsce`.
 - **Publishing**: `npm run publish` (or `publish:vsce` / `publish:ovsx`) for marketplace releases.
-- **Mock Data**: Set `USE_MOCK_DATA = true` in `src/constants.ts` to test UI rendering against `dev/testData.json` when the backend process is unavailable.
+- **Mock Data**: Run with `AG_USAGE_MOCK_DATA=true` (or use the "Run Extension (Mock Data)" launch configuration) to test UI rendering against `dev/testData.json` when the backend process is unavailable.
