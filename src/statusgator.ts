@@ -1,9 +1,10 @@
 import * as https from 'https';
-import { REQUEST_TIMEOUT_MS, STATUSGATOR_SERVICE_URL } from './constants';
+import { MS_PER_MINUTE, REQUEST_TIMEOUT_MS, STATUSGATOR_SERVICE_URL } from './constants';
 import { PublicServiceHealthPoint, PublicServiceStatus } from './types';
 import { MAX_BUFFER_SIZE } from './utils';
 
 const MAX_REDIRECTS = 3;
+const HEALTH_GRAPH_INTERVAL_MS = 15 * MS_PER_MINUTE;
 
 function decodeHtmlEntities(value: string): string {
 	return value
@@ -17,6 +18,7 @@ function decodeHtmlEntities(value: string): string {
 
 function htmlToText(html: string): string {
 	return decodeHtmlEntities(html
+		.replace(/<head\b[^>]*>[\s\S]*?<\/head>/gi, ' ')
 		.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
 		.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
 		.replace(/<[^>]+>/g, ' ')
@@ -60,8 +62,164 @@ function parseStatusGatorChartPoints(html: string): PublicServiceHealthPoint[] |
 	}
 }
 
+function extractFirstJsonObject(source: string): string | undefined {
+	const openBraceIndex = source.indexOf('{');
+	if (openBraceIndex === -1) { return undefined; }
+
+	let depth = 0;
+	let inString = false;
+	let escaped = false;
+
+	for (let i = openBraceIndex; i < source.length; i++) {
+		const ch = source[i];
+		if (inString) {
+			if (escaped) {
+				escaped = false;
+			} else if (ch === '\\') {
+				escaped = true;
+			} else if (ch === '"') {
+				inString = false;
+			}
+			continue;
+		}
+		if (ch === '"') {
+			inString = true;
+		} else if (ch === '{') {
+			depth++;
+		} else if (ch === '}') {
+			depth--;
+			if (depth === 0) {
+				return source.slice(openBraceIndex, i + 1);
+			}
+		}
+	}
+	return undefined;
+}
+
+function resolveHealthGraphBarStatus(
+	rawStatus: unknown,
+	inOutageRange: boolean,
+	hasMajorSeverity: boolean
+): 0 | 1 | 2 {
+	const normalized = typeof rawStatus === 'string' ? rawStatus.toLowerCase() : rawStatus;
+	if (normalized === 'down' || normalized === 2) {
+		return 2;
+	}
+	if (normalized === 'outage' || normalized === 'warn' || normalized === 'warning' || normalized === 1) {
+		return hasMajorSeverity ? 2 : 1;
+	}
+	if (normalized === 'up' || normalized === 0) {
+		return 0;
+	}
+	return inOutageRange ? (hasMajorSeverity ? 2 : 1) : 0;
+}
+
+function parseHealthGraphPoints(
+	html: string,
+	checkedAt: number
+): { points: PublicServiceHealthPoint[]; chartEndsAt: number } | undefined {
+	const match = html.match(/x-data=(?:"HealthGraph\(([^"]*)\)"|'HealthGraph\(([^']*)\)')/i);
+	const rawArgs = match?.[1] ?? match?.[2];
+	if (!rawArgs) { return undefined; }
+
+	const jsonObject = extractFirstJsonObject(decodeHtmlEntities(rawArgs));
+	if (!jsonObject) { return undefined; }
+
+	try {
+		const payload = JSON.parse(jsonObject) as {
+			bars?: unknown;
+			outages?: unknown;
+			events?: unknown;
+			timeline?: unknown;
+		};
+		if (!Array.isArray(payload.bars) || payload.bars.length === 0) { return undefined; }
+
+		const barCount = payload.bars.length;
+		const timelineItems = Array.isArray(payload.timeline) ? payload.timeline : [];
+		const hasTimelineMajor = timelineItems.some(item => {
+			if (!item || typeof item !== 'object') { return false; }
+			const severity = (item as { severity?: unknown }).severity;
+			return typeof severity === 'string' && /^(?:down|major)$/i.test(severity);
+		});
+
+		const validEvents: Array<{ index: number; isAlert: boolean; timestamp: number }> = [];
+		if (Array.isArray(payload.events)) {
+			for (const rawEvent of payload.events) {
+				if (!rawEvent || typeof rawEvent !== 'object') { continue; }
+				const event = rawEvent as { index?: unknown; type?: unknown; time?: unknown };
+				const index = typeof event.index === 'number' && Number.isInteger(event.index)
+					? event.index
+					: -1;
+				const isAlert = typeof event.type === 'string' && event.type.toLowerCase() === 'alert';
+				const timestamp = typeof event.time === 'string' ? new Date(event.time).getTime() : NaN;
+				if (index >= 0 && index < barCount) {
+					validEvents.push({ index, isAlert, timestamp });
+				}
+			}
+		}
+
+		const hasAnyAlertEvent = validEvents.some(event => event.isAlert);
+
+		const outageRanges: Array<{ startIndex: number; endIndex: number; isMajor: boolean }> = [];
+		if (Array.isArray(payload.outages)) {
+			for (const rawOutage of payload.outages) {
+				if (!rawOutage || typeof rawOutage !== 'object') { continue; }
+				const outage = rawOutage as { startIndex?: unknown; endIndex?: unknown };
+				if (typeof outage.startIndex !== 'number' || typeof outage.endIndex !== 'number') { continue; }
+				if (!Number.isInteger(outage.startIndex) || !Number.isInteger(outage.endIndex)) { continue; }
+				const startIndex = Math.max(0, outage.startIndex);
+				const endIndex = Math.min(barCount - 1, outage.endIndex);
+				if (startIndex > endIndex) { continue; }
+				const isMajor = hasTimelineMajor || validEvents.some(
+					event => event.isAlert && event.index >= startIndex && event.index <= endIndex
+				);
+				outageRanges.push({ startIndex, endIndex, isMajor });
+			}
+		}
+
+		let latestEvent: { index: number; timestamp: number } | undefined;
+		for (const event of validEvents) {
+			if (!Number.isFinite(event.timestamp)) { continue; }
+			if (!latestEvent || event.timestamp > latestEvent.timestamp ||
+				(event.timestamp === latestEvent.timestamp && event.index > latestEvent.index)) {
+				latestEvent = { index: event.index, timestamp: event.timestamp };
+			}
+		}
+
+		const chartEndsAt = latestEvent
+			? Math.floor(latestEvent.timestamp / HEALTH_GRAPH_INTERVAL_MS) * HEALTH_GRAPH_INTERVAL_MS +
+				(barCount - 1 - latestEvent.index) * HEALTH_GRAPH_INTERVAL_MS
+			: Math.floor(checkedAt / HEALTH_GRAPH_INTERVAL_MS) * HEALTH_GRAPH_INTERVAL_MS;
+
+		const points: PublicServiceHealthPoint[] = [];
+		for (let i = 0; i < barCount; i++) {
+			const rawBar = payload.bars[i];
+			if (!rawBar || typeof rawBar !== 'object') { continue; }
+			const bar = rawBar as { v?: unknown; status?: unknown };
+			if (typeof bar.v !== 'number' || !Number.isFinite(bar.v)) { continue; }
+
+			const matchingRanges = outageRanges.filter(range => i >= range.startIndex && i <= range.endIndex);
+			const inOutageRange = matchingRanges.length > 0;
+			const isMajor = inOutageRange
+				? matchingRanges.some(range => range.isMajor)
+				: (hasTimelineMajor || hasAnyAlertEvent);
+
+			points.push({
+				timestamp: chartEndsAt - (barCount - 1 - i) * HEALTH_GRAPH_INTERVAL_MS,
+				value: bar.v,
+				status: resolveHealthGraphBarStatus(bar.status, inOutageRange, isMajor)
+			});
+		}
+
+		return points.length > 0 ? { points, chartEndsAt } : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 function parseStatusGatorChartEndsAt(html: string): number | undefined {
-	const chartSection = html.match(/id="service_health_chart"[\s\S]*?<\/section>/i)?.[0] ?? html;
+	const chartSection = html.match(/id="service_health_chart"[\s\S]*?<\/section>/i)?.[0];
+	if (!chartSection) { return undefined; }
 	const datetime = chartSection.match(/<time[^>]+datetime="([^"]+)"/i)?.[1];
 	if (!datetime) { return undefined; }
 	const timestamp = new Date(datetime).getTime();
@@ -76,13 +234,18 @@ function getStatusGatorReportCount(text: string): number | undefined {
 }
 
 function parseStatusGatorResponse(html: string): PublicServiceStatus {
-	const text = htmlToText(html);
-	const phrase = text.match(/Google Antigravity is ([^.]+?)(?:\.|$)/i)?.[1]?.trim();
+	const checkedAt = Date.now();
+	const bodyHtml = html.replace(/<head\b[^>]*>[\s\S]*?<\/head>/gi, ' ');
+	const text = htmlToText(bodyHtml);
+	const rawPhrase = bodyHtml.match(/Google Antigravity is ([^<.!?]+)/i)?.[1];
+	const phrase = rawPhrase ? decodeHtmlEntities(rawPhrase).replace(/\s+/g, ' ').trim() : undefined;
 	const reportCount = getStatusGatorReportCount(text);
 	const details = reportCount !== undefined ? `${reportCount.toLocaleString()} reports/24h` : undefined;
-	const healthPoints = parseStatusGatorChartPoints(html);
-	const chartEndsAt = parseStatusGatorChartEndsAt(html);
-	const base = { details, checkedAt: Date.now(), url: STATUSGATOR_SERVICE_URL, chartEndsAt, healthPoints };
+	const legacyPoints = parseStatusGatorChartPoints(html);
+	const healthGraph = legacyPoints ? undefined : parseHealthGraphPoints(html, checkedAt);
+	const healthPoints = legacyPoints ?? healthGraph?.points;
+	const chartEndsAt = parseStatusGatorChartEndsAt(html) ?? healthGraph?.chartEndsAt;
+	const base = { details, checkedAt, url: STATUSGATOR_SERVICE_URL, chartEndsAt, healthPoints };
 	const latestPoint = healthPoints?.[healthPoints.length - 1];
 
 	if (latestPoint?.status === 2) {
