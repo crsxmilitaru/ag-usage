@@ -15,7 +15,8 @@ export const PANEL_SETTINGS_OPEN_CONTEXT = 'ag-usage.panelSettingsOpen';
 
 export const GLOBAL_STATE_KEYS = {
 	QUOTA_HISTORY: 'quotaHistory',
-	DAILY_USAGE: 'quotaDailyUsage'
+	DAILY_USAGE: 'quotaDailyUsage',
+	SUPPORT_BANNER: 'supportBanner'
 } as const;
 
 export const MS_PER_SECOND = 1000;
@@ -59,9 +60,13 @@ export const MAX_PORT_VALIDATION_ATTEMPTS = 2;
 export const HEATMAP_MAX_DAYS = 180;
 export const MODEL_USAGE_COLLAPSED_ROWS = 3;
 export const LOW_QUOTA_REARM_MARGIN_PERCENT = 10;
+export const SUPPORT_BANNER_MIN_PANEL_OPENS = 3;
 
 export const STATUSGATOR_SERVICE_URL = 'https://statusgator.com/services/google-antigravity';
-export const GITHUB_ISSUES_URL = 'https://github.com/crsxmilitaru/ag-usage/issues';
+export const GITHUB_REPO_URL = 'https://github.com/crsxmilitaru/ag-usage';
+export const GITHUB_ISSUES_URL = `${GITHUB_REPO_URL}/issues`;
+export const VSCODE_MARKETPLACE_REVIEW_URL = 'https://marketplace.visualstudio.com/items?itemName=crsx.ag-usage&ssr=false#review-details';
+export const OPENVSX_REVIEW_URL = 'https://open-vsx.org/extension/crsx/ag-usage/reviews';
 export const ANTIGRAVITY_PLANS_URL = 'https://antigravity.google/docs/plans';
 
 export const MODEL_USAGE_CONVERSATION_DIRS = [
@@ -118,39 +123,34 @@ export const THEME_COLORS = {
 export const MODELS_COLORS = {
 	light: {
 		gemini: '#0d6e96',
-		other: '#0d9488',
-		argon: '#2d4ea3'
+		other: '#0d9488'
 	},
 	dark: {
 		gemini: '#1d8aad',
-		other: '#1d998a',
-		argon: '#4b6bcb'
+		other: '#1d998a'
 	}
 } as const;
 
 export const CATEGORY_NAMES = {
 	GEMINI: 'Gemini',
-	OTHER: 'Other',
-	ARGON: 'Argon'
+	OTHER: 'Other'
 } as const;
 
-export const CATEGORY_ORDER = [CATEGORY_NAMES.GEMINI, CATEGORY_NAMES.OTHER, CATEGORY_NAMES.ARGON] as const;
+export const CATEGORY_ORDER = [CATEGORY_NAMES.GEMINI, CATEGORY_NAMES.OTHER] as const;
 
-export const STATUS_BAR_DISPLAY_ITEMS = ['gemini', 'other', 'argon', 'average', 'total'] as const;
-export const DEFAULT_STATUS_BAR_DISPLAY = ['gemini', 'other', 'argon'] as const;
+export const STATUS_BAR_DISPLAY_ITEMS = ['gemini', 'other', 'average', 'total'] as const;
+export const DEFAULT_STATUS_BAR_DISPLAY = ['gemini', 'other'] as const;
 
 export const DISPLAY_MODE_TO_CATEGORY: Record<string, string> = {
 	gemini: CATEGORY_NAMES.GEMINI,
 	other: CATEGORY_NAMES.OTHER,
-	argon: CATEGORY_NAMES.ARGON,
 	average: 'Average',
 	total: 'Total'
 };
 
 export const MODEL_KEYWORDS = {
 	flash: 'flash',
-	gemini: 'gemini',
-	argon: 'argon'
+	gemini: 'gemini'
 } as const;
 
 export const BUCKET_OPACITY = {

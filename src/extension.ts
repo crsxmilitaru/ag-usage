@@ -41,6 +41,7 @@ import { NotificationManager } from './notifications';
 import { UsageViewProvider } from './panel';
 import { renderStats } from './renderer';
 import { fetchStatusGatorStatus } from './statusgator';
+import { SupportBannerState } from './supportBanner';
 import {
 	CachedConnection,
 	DailyUsageEntry,
@@ -235,7 +236,8 @@ class ExtensionState implements vscode.Disposable {
 	publicServiceStatus: PublicServiceStatus | null = null;
 	modelUsage: ModelUsageSummary | null = null;
 	quotaHistory: QuotaHistory;
-	usageViewProvider = new UsageViewProvider();
+	usageViewProvider: UsageViewProvider;
+	private supportBanner: SupportBannerState;
 	readonly context: vscode.ExtensionContext;
 
 	constructor(context: vscode.ExtensionContext) {
@@ -243,9 +245,16 @@ class ExtensionState implements vscode.Disposable {
 		const savedHistory = context.globalState.get<QuotaHistoryEntry[]>(GLOBAL_STATE_KEYS.QUOTA_HISTORY, []);
 		const savedDailyUsage = context.globalState.get<DailyUsageEntry[]>(GLOBAL_STATE_KEYS.DAILY_USAGE, []);
 		this.quotaHistory = new QuotaHistory(savedHistory, savedDailyUsage);
+		this.supportBanner = new SupportBannerState(
+			context.globalState.get(GLOBAL_STATE_KEYS.SUPPORT_BANNER),
+			snapshot => {
+				void this.persistGlobalState(GLOBAL_STATE_KEYS.SUPPORT_BANNER, snapshot, 'Failed to persist support banner state');
+			}
+		);
 
 		this.isActive = true;
 
+		this.usageViewProvider = new UsageViewProvider(this.supportBanner);
 		this.usageViewProvider.onHistoryChanged = () => {
 			this.persistHistory();
 		};
@@ -279,12 +288,16 @@ class ExtensionState implements vscode.Disposable {
 	}
 
 	persistHistory(): void {
-		void this.context.globalState
-			.update(GLOBAL_STATE_KEYS.QUOTA_HISTORY, this.quotaHistory.getRawEntries())
-			.then(undefined, err => this.log('Failed to persist quota history', err));
-		void this.context.globalState
-			.update(GLOBAL_STATE_KEYS.DAILY_USAGE, this.quotaHistory.getRawDailyUsage())
-			.then(undefined, err => this.log('Failed to persist daily usage', err));
+		void this.persistGlobalState(GLOBAL_STATE_KEYS.QUOTA_HISTORY, this.quotaHistory.getRawEntries(), 'Failed to persist quota history');
+		void this.persistGlobalState(GLOBAL_STATE_KEYS.DAILY_USAGE, this.quotaHistory.getRawDailyUsage(), 'Failed to persist daily usage');
+	}
+
+	private async persistGlobalState(key: string, value: unknown, failureMessage: string): Promise<void> {
+		try {
+			await this.context.globalState.update(key, value);
+		} catch (error) {
+			this.log(failureMessage, error);
+		}
 	}
 
 	syncPanel(errorMessage?: string | null, statsData: UsageStatistics | null = this.lastStatsData): void {

@@ -184,9 +184,6 @@ function getCategoryStyleMeta(category: string): { colorVar: string; categoryCla
 	if (category === CATEGORY_NAMES.OTHER) {
 		return { colorVar: 'var(--models-other)', categoryClass: 'category-other' };
 	}
-	if (category === CATEGORY_NAMES.ARGON) {
-		return { colorVar: 'var(--models-argon)', categoryClass: 'category-argon' };
-	}
 	return { colorVar: 'var(--text-secondary)', categoryClass: 'category-default' };
 }
 
@@ -477,9 +474,6 @@ export function buildHeatmapSection(
 
 function getModelUsageBarFillClass(entry: ModelUsageEntry): string {
 	const category = determineCategory(entry.model);
-	if (category === CATEGORY_NAMES.ARGON) {
-		return 'model-usage-bar-fill--argon';
-	}
 	if (category === CATEGORY_NAMES.GEMINI) {
 		return 'model-usage-bar-fill--gemini';
 	}

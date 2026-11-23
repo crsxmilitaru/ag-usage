@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { CONFIG_NAMESPACE, DISPLAY_MODE_TO_CATEGORY, MS_PER_DAY, MS_PER_HOUR, MS_PER_MINUTE } from './constants';
+import { CONFIG_NAMESPACE, DEFAULT_STATUS_BAR_DISPLAY, DISPLAY_MODE_TO_CATEGORY, MS_PER_DAY, MS_PER_HOUR, MS_PER_MINUTE } from './constants';
 import { AbsoluteTimeFormat, QuotaBucket, QuotaGroup, ResetTimeDisplayMode, StatusBarDisplayItem, StatusBarDisplayMode, StatusBarLimitDisplayMode } from './types';
 import { isNotStartedQuota, normalizeStatusBarItems } from './utils';
 
@@ -148,7 +148,7 @@ export function formatStatusBarText(
 ): string {
 	const now = Date.now();
 	const config = vscode.workspace.getConfiguration(CONFIG_NAMESPACE);
-	const rawDisplay = config.get<StatusBarDisplayItem[] | StatusBarDisplayMode>('statusBarDisplay', ['gemini', 'other', 'argon']);
+	const rawDisplay = config.get<StatusBarDisplayItem[] | StatusBarDisplayMode>('statusBarDisplay', [...DEFAULT_STATUS_BAR_DISPLAY]);
 	const displayItems = normalizeStatusBarItems(rawDisplay);
 	const limitDisplay = config.get<StatusBarLimitDisplayMode>('statusBarLimitDisplay', 'both');
 	const showCountdown = config.get<boolean>('statusBarCountdown', true);

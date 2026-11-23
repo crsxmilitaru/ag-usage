@@ -47,7 +47,6 @@
 - **Detailed tooltip**: Hover over the status bar item to see a detailed breakdown and visual progress bars for model categories (as they are calculated by Antigravity):
   - **Gemini** - Gemini Pro and Gemini Flash models
   - **Other** - Claude and GPT models
-  - **Argon** - Gemini 4 Argon weekly limit (Pro)
 
   <p align="center">
     <img src="https://raw.githubusercontent.com/crsxmilitaru/ag-usage/main/assets/tooltip.png" alt="AG Usage Tooltip Preview" width="520">
@@ -76,17 +75,16 @@
 
 - `ag-usage.pauseWhenUnfocused`: Pause automatic background refresh when the VS Code window is not focused. Default is `true`.
 
-- `ag-usage.statusBarDisplay`: List of items to display in the status bar, in order. Default is `["gemini", "other", "argon"]`. Available items:
+- `ag-usage.statusBarDisplay`: List of items to display in the status bar, in order. Default is `["gemini", "other"]`. Available items:
   - `gemini` - Gemini usage
   - `other` - Other usage
-  - `argon` - Gemini 4 Argon weekly limit (Pro)
   - `average` - Average usage across all groups
   - `total` - Weighted total usage across all models
 
 - `ag-usage.statusBarLimitDisplay`: Control how to display the quota limits in the status bar. Options:
-  - `5h` - Shows only the 5-hour quota (omits groups without 5-hour limits, e.g., `Gemini 77%`)
-  - `weekly` - Shows only the weekly quota (e.g., `Gemini 99%`)
-  - `both` (default) - Shows both 5-hour and weekly quotas (e.g., `Gemini 21% (99%)`, `Argon (99%)`)
+  - `5h` - Shows only the 5-hour quota (omits groups without 5-hour limits)
+  - `weekly` - Shows only the weekly quota
+  - `both` (default) - Shows both 5-hour and weekly quotas
 
 - `ag-usage.statusBarAlignment`: Control the alignment of the status bar item. Options: `Left`, `Right` (default).
 

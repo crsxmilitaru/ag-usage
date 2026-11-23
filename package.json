@@ -1,6 +1,6 @@
 {
   "name": "ag-usage",
-  "version": "2.4.1",
+  "version": "2.4.2",
   "displayName": "AG Usage",
   "description": "Track usage of Antigravity AI models",
   "author": "Cristian Militaru",
@@ -116,15 +116,13 @@
             "enum": [
               "gemini",
               "other",
-              "argon",
               "average",
               "total"
             ]
           },
           "default": [
             "gemini",
-            "other",
-            "argon"
+            "other"
           ],
           "uniqueItems": true,
           "description": "Items to display in the status bar, in order."

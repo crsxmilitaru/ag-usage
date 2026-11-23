@@ -1,7 +1,6 @@
 import * as http from 'http';
 import * as https from 'https';
 import {
-	CATEGORY_NAMES,
 	IDE_INFO,
 	MAX_PORT_VALIDATION_ATTEMPTS,
 	PROCESS_IDENTIFIERS,
@@ -11,7 +10,6 @@ import {
 import { getPlatformStrategy } from './platform';
 import {
 	LocalProtocol,
-	ModelConfig,
 	ProcessId,
 	ProcessInfo,
 	QuotaBucket,
@@ -766,48 +764,6 @@ function parseQuotaSummary(response: ServerQuotaSummaryResponse): Record<string,
 	return groups;
 }
 
-function addArgonWeeklyFallback(groups: Record<string, QuotaGroup>, models: ModelConfig[]): void {
-	const argonQuotas = models
-		.filter(model => determineCategory(model.label ?? '') === CATEGORY_NAMES.ARGON)
-		.map(model => {
-			const resetTime = parseResetTime(model.quotaInfo?.resetTime);
-			return {
-				quota: parseQuotaFractionOrExhausted(model.quotaInfo?.remainingFraction, resetTime),
-				resetTime
-			};
-		})
-		.filter((model): model is { quota: number; resetTime: number | null } => model.quota !== null);
-
-	if (argonQuotas.length === 0) {
-		return;
-	}
-
-	const fallback = argonQuotas.reduce(
-		(lowest, model) => (isMoreRestrictiveQuota(model, lowest) ? model : lowest),
-		argonQuotas[0]
-	);
-	const group = groups[CATEGORY_NAMES.ARGON] ??= {
-		quota: fallback.quota,
-		resetTime: fallback.resetTime,
-		buckets: []
-	};
-
-	if (group.buckets?.some(bucket => bucket.window.toLowerCase() === 'weekly')) {
-		return;
-	}
-
-	const weeklyBucket: QuotaBucket = {
-		window: 'weekly',
-		displayName: 'Weekly Limit',
-		quota: fallback.quota,
-		resetTime: fallback.resetTime
-	};
-	group.buckets = mergeQuotaBuckets(group.buckets ?? [], [weeklyBucket]);
-	const effectiveBucket = pickEffectiveBucket(group.buckets);
-	group.quota = effectiveBucket.quota;
-	group.resetTime = effectiveBucket.resetTime;
-}
-
 function isForceRefreshRejectedError(error: unknown): boolean {
 	return error instanceof LocalHttpError &&
 		(error.statusCode === 400 || error.statusCode === 422 || error.statusCode === 500 || error.statusCode === 501);
@@ -920,8 +876,6 @@ export async function fetchStats(
 			}
 		}
 	}
-
-	addArgonWeeklyFallback(groups, models);
 
 	for (const model of models) {
 		const { label } = model;

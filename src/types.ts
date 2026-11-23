@@ -62,7 +62,7 @@ export interface ProcessInfo {
 	cmd: string;
 }
 
-export type StatusBarDisplayItem = 'gemini' | 'other' | 'argon' | 'average' | 'total';
+export type StatusBarDisplayItem = 'gemini' | 'other' | 'average' | 'total';
 
 export type StatusBarDisplayMode = StatusBarDisplayItem | 'all';
 

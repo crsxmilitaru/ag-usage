@@ -21,7 +21,7 @@ AG Usage (`ag-usage`) is a Visual Studio Code extension designed to monitor and 
 - `src/panel/index.ts`: `UsageViewProvider` implementing `vscode.WebviewViewProvider`, HTML assembly, and customizable section layout handling.
 - `src/panel/cards.ts`: Plan/credits top row, quota cards, bucket progress bars, and history sparklines/lists.
 - `src/panel/widgets.ts`: StatusGator health chart, reset timeline, usage activity heatmap, and most used models section.
-- `src/panel/screens.ts`: Loading, not-found, and error screens, fallback error HTML, and tooltip attribute builders.
+- `src/panel/screens.ts`: Loading, not-found, and error screens, inline error and support banners, fallback error HTML, and tooltip attribute builders.
 - `src/panel/styles.ts`: Dashboard CSS styles.
 - `src/panel/script.ts`: Client-side webview interaction script.
 - `src/panel/settings.ts`: In-panel settings state normalization, validation, persistence, and HTML rendering.
@@ -29,6 +29,7 @@ AG Usage (`ag-usage`) is a Visual Studio Code extension designed to monitor and 
 - `src/panel/settingsScript.ts`: Client-side in-panel settings interaction and validation script.
 - `src/watcher.ts`: File system watcher (`ConversationWatcher`) monitoring Antigravity conversation directories for Live Sync refreshes.
 - `src/history.ts`: State management for quota history and daily usage tracking (`QuotaHistory`, `QuotaHistoryEntry`, `DailyUsageEntry`).
+- `src/supportBanner.ts`: State management for the dashboard support banner (`SupportBannerState`): panel-open threshold and dismissal, persisted in global state.
 - `src/modelusage.ts`: Local model usage scanner. Parses SQLite `gen_metadata` generation records across Antigravity storage directories (`~/.gemini/antigravity`, `~/.gemini/antigravity-ide`, `~/.gemini/antigravity-cli`) and aggregates per-model, per-thinking-level generation counts for the "Most Used Models" panel section.
 - `src/formatter.ts`: Helper functions for formatting dates, times, relative countdowns, quota percentages, connection error details, and error tooltips.
 - `src/notifications.ts`: Quota alerts and threshold notifications (`NotificationManager`) for full quota refills and low quota warnings.

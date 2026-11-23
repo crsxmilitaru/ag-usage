@@ -5,6 +5,7 @@ import {
 	CATEGORY_NAMES,
 	DEFAULT_MAX_HISTORY_ITEMS,
 	DEFAULT_REFRESH_INTERVAL,
+	DEFAULT_STATUS_BAR_DISPLAY,
 	MAX_MAX_HISTORY_ITEMS,
 	MAX_PID_32BIT_SIGNED,
 	MAX_PORT,
@@ -21,7 +22,8 @@ import {
 	PROCESS_IDENTIFIERS,
 	PROGRESS_BUCKET_BOUNDARIES,
 	PROGRESS_STOPS,
-	SERVER_STARTUP_TOLERANCE_MINUTES
+	SERVER_STARTUP_TOLERANCE_MINUTES,
+	STATUS_BAR_DISPLAY_ITEMS
 } from './constants';
 import { QuotaBucket, QuotaGroup, StatusBarDisplayItem } from './types';
 
@@ -60,22 +62,23 @@ export function normalizeStatusBarItems(rawDisplay: unknown): StatusBarDisplayIt
 		? rawDisplay
 		: typeof rawDisplay === 'string'
 			? rawDisplay.split(',')
-			: ['gemini', 'other', 'argon'];
+			: DEFAULT_STATUS_BAR_DISPLAY;
 
 	const items: StatusBarDisplayItem[] = [];
 	for (const rawItem of rawItems) {
 		if (typeof rawItem !== 'string') { continue; }
 		const normalized = rawItem.trim().toLowerCase();
 		if (normalized === 'all') {
-			for (const item of ['gemini', 'other', 'argon'] as const) {
+			for (const item of DEFAULT_STATUS_BAR_DISPLAY) {
 				if (!items.includes(item)) {
 					items.push(item);
 				}
 			}
 			continue;
 		}
-		if ((normalized === 'gemini' || normalized === 'other' || normalized === 'argon' || normalized === 'average' || normalized === 'total') && !items.includes(normalized)) {
-			items.push(normalized);
+		const matchedItem = (STATUS_BAR_DISPLAY_ITEMS as readonly StatusBarDisplayItem[]).find(item => item === normalized);
+		if (matchedItem && !items.includes(matchedItem)) {
+			items.push(matchedItem);
 		}
 	}
 	return items;
@@ -163,9 +166,6 @@ export function getErrorMessage(error: unknown): string {
 
 export function determineCategory(label: string): string {
 	const lowerLabel = label.toLowerCase();
-	if (lowerLabel.includes(MODEL_KEYWORDS.argon)) {
-		return CATEGORY_NAMES.ARGON;
-	}
 	if (lowerLabel.includes(MODEL_KEYWORDS.gemini) || lowerLabel.includes(MODEL_KEYWORDS.flash)) {
 		return CATEGORY_NAMES.GEMINI;
 	}

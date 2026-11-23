@@ -1,5 +1,9 @@
 # Changelog
 
+## [2.4.2] - 2026-11-23
+
+- Removed Argon-specific quota support (now included in Gemini group)
+
 ## [2.4.1] - 2026-11-22
 
 - Fixed the Service health card not appearing by updating StatusGator parsing for its redesigned `HealthGraph` markup, status text, and chart end-time

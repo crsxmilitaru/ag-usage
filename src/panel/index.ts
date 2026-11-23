@@ -5,14 +5,19 @@ import {
 	DEFAULT_LIVE_SYNC,
 	DEFAULT_REFRESH_INTERVAL,
 	GITHUB_ISSUES_URL,
+	GITHUB_REPO_URL,
 	OPEN_MODELS_SETTINGS_COMMAND,
+	OPENVSX_REVIEW_URL,
 	PANEL_SETTINGS_OPEN_CONTEXT,
 	PanelSectionId,
 	REFRESH_COMMAND,
-	SETTINGS_COMMAND
+	SETTINGS_COMMAND,
+	VSCODE_MARKETPLACE_REVIEW_URL
 } from '../constants';
+import { isAntigravityIde } from '../environment';
 import { getAbsoluteTimeFormat, resolveLocale } from '../formatter';
 import { QuotaHistory } from '../history';
+import { SupportBannerState } from '../supportBanner';
 import { AbsoluteTimeFormat, ModelUsageSummary, PublicServiceStatus, ServiceStatus, UsageStatistics } from '../types';
 import {
 	escapeHtml,
@@ -28,7 +33,8 @@ import {
 	buildErrorScreen,
 	buildFallbackErrorHtml,
 	buildInitialLoadingScreen,
-	buildNotFoundScreen
+	buildNotFoundScreen,
+	buildSupportBanner
 } from './screens';
 import { getPanelScript } from './script';
 import {
@@ -63,6 +69,7 @@ interface PanelRenderOptions {
 	errorMessage: string | null;
 	liveSync: boolean;
 	updatedAt: number;
+	showSupportBanner: boolean;
 }
 
 function buildPanelSectionContent(id: PanelSectionId, ctx: PanelBuildContext): string {
@@ -113,7 +120,7 @@ function formatSyncFooterLabel(liveSync: boolean, refreshInterval: number): stri
 }
 
 function buildPanelHtml(options: PanelRenderOptions): string {
-	const { ctx, serviceStatus, refreshInterval, panelSections, errorMessage, liveSync, updatedAt } = options;
+	const { ctx, serviceStatus, refreshInterval, panelSections, errorMessage, liveSync, updatedAt, showSupportBanner } = options;
 	const nonce = crypto.randomBytes(16).toString('base64');
 	const showInitialLoading = serviceStatus === 'loading' && !ctx.statsData;
 	const showNotFound = serviceStatus === 'not-found' && !ctx.statsData;
@@ -130,8 +137,9 @@ function buildPanelHtml(options: PanelRenderOptions): string {
 		bodyContent = buildErrorScreen(errorMessage);
 	} else {
 		const errorBanner = errorMessage ? buildErrorBanner(errorMessage) : '';
+		const supportBanner = showSupportBanner && !errorBanner ? buildSupportBanner() : '';
 		const syncLabel = formatSyncFooterLabel(liveSync, refreshInterval);
-		bodyContent = `${errorBanner}${buildOrderedPanelBody(ctx, panelSections)}<div class="panel-footer"><span id="lastUpdated">Updated just now</span><span class="refresh-interval-info">• ${escapeHtml(syncLabel)}</span></div>`;
+		bodyContent = `${errorBanner}${supportBanner}${buildOrderedPanelBody(ctx, panelSections)}<div class="panel-footer"><span id="lastUpdated">Updated just now</span><span class="refresh-interval-info">• ${escapeHtml(syncLabel)}</span></div>`;
 	}
 
 	return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';"><title>AG Usage</title><style>${getPanelStyles()}</style></head><body${bodyClass}>${bodyContent}${buildCustomTooltipElement()}<script nonce="${nonce}">${getPanelScript(updatedAt)}</script></body></html>`;
@@ -156,6 +164,7 @@ export class UsageViewProvider implements vscode.WebviewViewProvider {
 	private heatmapYear: number = new Date().getFullYear();
 	private heatmapNavigated = false;
 	private settingsOpen = false;
+	private readonly supportBanner: SupportBannerState;
 	private renderedMode: 'dashboard' | 'settings' | null = null;
 	private notifiedVisible = false;
 	private settingsMutationQueue: Promise<void> = Promise.resolve();
@@ -164,6 +173,10 @@ export class UsageViewProvider implements vscode.WebviewViewProvider {
 	public onHistoryChanged?: (history: QuotaHistory) => void;
 	public onDidBecomeVisible?: () => void;
 	public log?: (message: string, error?: unknown) => void;
+
+	constructor(supportBanner: SupportBannerState) {
+		this.supportBanner = supportBanner;
+	}
 
 	public resolveWebviewView(
 		webviewView: vscode.WebviewView,
@@ -192,6 +205,11 @@ export class UsageViewProvider implements vscode.WebviewViewProvider {
 
 		webviewView.onDidChangeVisibility(() => {
 			if (webviewView.visible) {
+				const bannerWasVisible = this.supportBanner.isVisible;
+				this.supportBanner.recordPanelOpen();
+				if (this.supportBanner.isVisible && !bannerWasVisible) {
+					this.updateView();
+				}
 				this.notifyVisible();
 			} else {
 				this.notifiedVisible = false;
@@ -218,7 +236,14 @@ export class UsageViewProvider implements vscode.WebviewViewProvider {
 					void this.view?.webview.postMessage({ command: 'copyErrorResult', success: false });
 				});
 			} else if (command === 'openIssues') {
-				void vscode.env.openExternal(vscode.Uri.parse(GITHUB_ISSUES_URL));
+				void this.openExternalLink(GITHUB_ISSUES_URL, 'Failed to open the issue tracker');
+			} else if (command === 'openReview') {
+				const reviewUrl = isAntigravityIde() ? OPENVSX_REVIEW_URL : VSCODE_MARKETPLACE_REVIEW_URL;
+				void this.openExternalLink(reviewUrl, 'Failed to open the review page');
+			} else if (command === 'openGitHub') {
+				void this.openExternalLink(GITHUB_REPO_URL, 'Failed to open the GitHub repository');
+			} else if (command === 'dismissSupport') {
+				this.supportBanner.dismiss();
 			} else if (command === 'openAntigravitySettings') {
 				void vscode.commands.executeCommand(OPEN_MODELS_SETTINGS_COMMAND);
 			} else if (command === 'prevMonth') {
@@ -237,6 +262,10 @@ export class UsageViewProvider implements vscode.WebviewViewProvider {
 				void this.handleResetAllSettingsMessage();
 			}
 		}, null, this.viewDisposables);
+
+		if (webviewView.visible) {
+			this.supportBanner.recordPanelOpen();
+		}
 
 		this.updateView();
 		if (webviewView.visible) {
@@ -270,6 +299,14 @@ export class UsageViewProvider implements vscode.WebviewViewProvider {
 		if (this.notifiedVisible) { return; }
 		this.notifiedVisible = true;
 		this.onDidBecomeVisible?.();
+	}
+
+	private async openExternalLink(url: string, failureMessage: string): Promise<void> {
+		try {
+			await vscode.env.openExternal(vscode.Uri.parse(url));
+		} catch (error) {
+			this.log?.(failureMessage, error);
+		}
 	}
 
 	private setSettingsOpen(open: boolean, rerender: boolean): void {
@@ -367,7 +404,8 @@ export class UsageViewProvider implements vscode.WebviewViewProvider {
 				panelSections,
 				errorMessage: this.lastErrorMessage,
 				liveSync,
-				updatedAt: this.lastUpdatedAt
+				updatedAt: this.lastUpdatedAt,
+				showSupportBanner: this.supportBanner.isVisible
 			});
 			this.renderedMode = 'dashboard';
 		} catch (error) {
@@ -387,7 +425,8 @@ export class UsageViewProvider implements vscode.WebviewViewProvider {
 					panelSections,
 					errorMessage: message,
 					liveSync,
-					updatedAt: this.lastUpdatedAt
+					updatedAt: this.lastUpdatedAt,
+					showSupportBanner: this.supportBanner.isVisible
 				});
 				this.renderedMode = 'dashboard';
 			} catch (fallbackError) {
